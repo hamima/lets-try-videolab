@@ -10,7 +10,7 @@ Both audio steps use the ElevenLabs v3 API. They run after the asset track (step
 
 1. Read `{workspace}/narration_script.txt`
 2. Extract the `=== ELEVENLABS VERSION ===` section — everything after that marker
-   - This section contains `<break time="2.0s"/>` between scenes and `<break time="1.5s"/>` mid-sentence, as produced by `08_narration.md`
+   - This section contains `<break time="2.0s"/>` between scenes and `<break time="1.5s"/>` mid-sentence, as produced by `10_narration.md`
    - No further tag injection needed — v3 interprets `<break time="Xs"/>` natively
 3. Load `voice_id` from `pipeline_state.json`
 4. Call ElevenLabs TTS API:
@@ -54,7 +54,7 @@ ffmpeg -stream_loop -1 -i music.wav -t 210 -af "afade=t=out:st=200:d=10" music_e
 
 6. Replace `music.wav` with the extended version. If ffmpeg fails, keep the 22s clip and log a warning.
 
-### Music prompt constraints (`10_music.md`, used by step 12)
+### Music prompt constraints (`12_music.md`, used by step 12)
 
 - Must specify "instrumental only, no vocals, soft background music" — plays under narration at 15% volume
 - Under 450 characters total (ElevenLabs hard limit) — aim for 300–420

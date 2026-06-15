@@ -43,6 +43,9 @@ Copy `.keys`, fill in your values, and `source .keys` before each session:
 | `ELEVENLABS_API_KEY` | ElevenLabs |
 | `PEXELS_API_KEY` | Pexels |
 | `PIXABAY_API_KEY` | Pixabay |
+| `RUNPOD_API_KEY` | RunPod (step 9 — video animation) |
+
+Also set `RUNPOD_ENDPOINT` and `RUNPOD_MODEL` in `automate.py` before running step 9.
 
 ## Documentation
 
@@ -50,10 +53,10 @@ Copy `.keys`, fill in your values, and `source .keys` before each session:
 |-----|----------|
 | [Pipeline Overview](docs/pipeline-overview.md) | Full flow diagram, key decisions, execution order |
 | [Scaffolding](docs/scaffolding.md) | CLI args, workspace layout, state file, domain/voice config |
-| [LLM Steps](docs/llm-steps.md) | Gemini runner, all text-generation steps (1–5, 8, 10, 13), platform metadata (2b) |
-| [Asset Generation](docs/asset-generation.md) | Step 6 fetch, Step 7a Imagen 4, Step 7b maps, Step 7c charts |
-| [Audio Generation](docs/audio-generation.md) | Step 9 ElevenLabs TTS, Step 11 music generation |
-| [Assembly](docs/assembly.md) | Step 14 — ffmpeg assembly via `assemble.py` |
+| [LLM Steps](docs/llm-steps.md) | Gemini runner, all text-generation steps (1–5, 8, 10, 12, 16), platform metadata (2b) |
+| [Asset Generation](docs/asset-generation.md) | Steps 6–9: fetch, Imagen 4, maps, charts, animation prompts, RunPod |
+| [Audio Generation](docs/audio-generation.md) | Step 11 ElevenLabs TTS, Step 13 music generation |
+| [Assembly](docs/assembly.md) | Step 17 — ffmpeg assembly via `assemble.py` |
 
 ## Project Structure
 
@@ -68,9 +71,10 @@ prompts/
     03_scene_breakdown.md
     04_asset_planning.md
     05_asset_acquisition.md
-    08_narration.md
-    10_music.md
-    13_creative_director.md
+    08_animation_prompt.md     # step 8 — per-asset animation description for RunPod
+    10_narration.md
+    12_music.md
+    16_creative_director.md
 docs/                    # documentation
 .keys                    # API keys — gitignored, never commit
 workspace/               # generated workspaces — gitignored

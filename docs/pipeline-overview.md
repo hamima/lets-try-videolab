@@ -136,7 +136,6 @@ Replace all manual steps in `pipeline.py` with a single automated script `automa
 ```
 1   → run_gemini_step()           # research_dossier.md
 2   → run_gemini_step()           # story_script.md
-2b  → run_gemini_step()           # platform_metadata.json (YouTube title, description, hashtags, tags)
 3   → run_gemini_step()           # scene_plan.md
 4   → run_gemini_step()           # asset_manifest.md
 5   → run_gemini_step()           # asset_acquisition.md
@@ -144,14 +143,14 @@ Replace all manual steps in `pipeline.py` with a single automated script `automa
 7a  → run_imagen_generation()     # image.png per ai_video asset
 7b  → run_map_generation()        # map.png per map asset (Folium)
 7c  → run_chart_generation()      # chart.png per chart asset (matplotlib)
-8   → run_animation_prompt_step() # animated.txt per static asset (Gemini)
+8   → run_animation_prompt_step() # animated.txt per static asset (Gemini, uses 08_animation_prompt.md)
 9   → run_runpod_animation()      # animated.mp4 per static asset (RunPod — placeholder config)
-10  → run_gemini_step()           # narration_script.txt  [uses 08_narration.md]
+10  → run_gemini_step()           # narration_script.txt  [uses 10_narration.md]
 11  → run_elevenlabs_tts()        # narration.mp3
-12  → run_gemini_step()           # music_prompt.txt  [uses 10_music.md]
+12  → run_gemini_step()           # music_prompt.txt  [uses 12_music.md]
 13  → run_elevenlabs_music()      # music.wav (22s clip → looped to 210s via ffmpeg)
 14  → run_script()                # asset_inventory.txt
 15  → run_script()                # narration_timing.json
-16  → run_gemini_step()           # edl.json  [uses 13_creative_director.md]
+16  → run_gemini_step()           # edl.json  [uses 16_creative_director.md]
 17  → run_script()                # output/final_video.mp4 (assemble.py)
 ```

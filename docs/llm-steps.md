@@ -2,10 +2,10 @@
 
 All text-generation steps share a single runner that loads a domain-specific prompt, injects workspace outputs as template variables, calls Gemini, and saves the result.
 
-## `run_gemini_step(step_id, ws, state)`
+## `run_gemini_step(step, ws, state)`
 
 1. Read `state["domain"]` to find the prompt directory
-2. Load `prompts/{domain}/NN_name.md` via `resolve_prompt_file(step_id, domain)`
+2. Load `prompts/{domain}/NN_name.md` via `resolve_prompt_file(step["id"], domain)`
 3. Replace `{{variable_name}}` placeholders with content from previous workspace files
 4. Call `gemini_generate(prompt)` — auto-falls back to `gemini-2.0-flash` on 429
 5. Write the response to the workspace as the step's output file
@@ -55,7 +55,7 @@ def gemini_generate(prompt: str, model: str = GEMINI_MODEL) -> str:
         raise
 ```
 
-Step 13 output must be valid JSON — strip markdown code fences and validate with `json.loads()` before saving as `edl.json`.
+Step 16 output must be valid JSON — strip markdown code fences and validate with `json.loads()` before saving as `edl.json`.
 
 ---
 

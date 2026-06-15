@@ -5,17 +5,21 @@ Core structure: entry point, configuration constants, CLI parsing, workspace man
 ## Configuration Constants
 
 ```python
-GEMINI_API_KEY        = os.environ["GEMINI_API_KEY"]
+GEMINI_API_KEY        = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL          = "gemini-2.5-pro"
 GEMINI_FALLBACK_MODEL = "gemini-2.0-flash"   # used on 429 quota errors
 
-ELEVENLABS_API_KEY = os.environ["ELEVENLABS_API_KEY"]
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 ELEVENLABS_MODEL   = "eleven_v3"
 
 IMAGEN_MODEL = "imagen-4.0-generate-001"
 
-PEXELS_API_KEY  = os.environ["PEXELS_API_KEY"]
-PIXABAY_API_KEY = os.environ["PIXABAY_API_KEY"]
+PEXELS_API_KEY  = os.environ.get("PEXELS_API_KEY", "")
+PIXABAY_API_KEY = os.environ.get("PIXABAY_API_KEY", "")
+
+RUNPOD_API_KEY  = os.environ.get("RUNPOD_API_KEY", "")
+RUNPOD_ENDPOINT = "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/run"  # TODO: replace
+RUNPOD_MODEL    = "wan2.1"                                          # TODO: replace
 
 DOMAIN_VOICE_MAP = {
     "political":         "pNInz6obpgDQGcFmaJgB",   # Adam
@@ -37,11 +41,11 @@ API keys are loaded from the environment. Run `source .keys` before executing th
 ```
 python automate.py           # full run
 python automate.py --step 3  # re-run a single step in the latest workspace
-python automate.py --step 12b
+python automate.py --step 15 # re-run narration timing (step 15)
 python automate.py --status  # print step status table and exit
 ```
 
-Use `argparse`. `--step` accepts int or string (for `12b`).
+Use `argparse`. `--step` accepts a string matching any step ID (e.g. `"8"`, `"15"`, `"17"`).
 
 ```python
 parser.add_argument("--step")
