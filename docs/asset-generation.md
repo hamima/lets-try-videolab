@@ -71,7 +71,6 @@ Step 4/5 prompts must produce map entries in this format:
 1. Scan `{workspace}/assets/` recursively for all `map_spec.json` files
 2. For each file — skip if `map.png` already exists (resumability)
 3. Render with Folium → save as HTML → screenshot with headless Playwright → `map.png`
-4. If `style` is set and `REPLICATE_API_KEY` is available, pass through FLUX.1 img2img for cinematic look
 
 ```python
 import folium
@@ -118,7 +117,6 @@ Supported `chart_type` values: `bar`, `line`, `pie`, `area`.
 1. Scan `{workspace}/assets/` recursively for all `chart_spec.json` files
 2. For each file — skip if `chart.png` already exists (resumability)
 3. Render with matplotlib on a dark background → `chart.png`
-4. If `style` is set and `REPLICATE_API_KEY` is available, pass through FLUX.1 img2img
 
 ```python
 import matplotlib.pyplot as plt
@@ -140,3 +138,69 @@ def render_chart(spec: dict, output_dir: Path) -> Path:
     plt.close()
     return out
 ```
+
+---
+
+## Step 8 — Animation Prompt Generation
+
+`run_animation_prompt_step()` uses Gemini to write a per-asset cinematic animation description, saved as `animated.txt`. This file feeds directly into Step 9 (RunPod).
+
+### Inputs
+
+- `asset_manifest.md` — parsed for `KEN_BURNS` and `VISUAL_GOAL` per scene/asset block
+- `story_script.md` — first ~500 characters used as the narrative vibe (`story_excerpt`)
+- `prompts/{domain}/08_animation_prompt.md` — domain-specific template with four placeholders:
+  - `{{ken_burns}}` — direction from manifest (e.g. `zoom_in`, `pan_right`)
+  - `{{visual_goal}}` — one-sentence visual description from manifest
+  - `{{asset_type}}` — derived from filename: `ai_image`, `map`, or `chart`
+  - `{{story_excerpt}}` — first 500 chars of the story script for tonal context
+
+### `run_animation_prompt_step(ws)`
+
+1. Parse `asset_manifest.md` → build lookup dict keyed by `(scene_n, asset_n)`
+2. Read `story_script.md` → extract first ~500 chars as `story_excerpt`
+3. Load `prompts/{domain}/08_animation_prompt.md`
+4. Scan `assets/` recursively for `image.png`, `map.png`, `chart.png` (skip `video.mp4`)
+5. For each static asset:
+   - Skip if sibling `animated.txt` already exists (resumable)
+   - Derive scene/asset numbers from folder path (`scene_X/asset_Y`)
+   - Look up `KEN_BURNS` + `VISUAL_GOAL` from parsed manifest (defaults: `zoom_in`, empty string)
+   - Inject all four variables into the prompt template
+   - Call `gemini_generate(prompt)`
+   - Write Gemini's one-paragraph response to `scene_X/asset_Y/animated.txt`
+
+### Output example
+
+For a political domain asset with `KEN_BURNS: zoom_out`:
+
+> "Slow pull-back from a close detail of the document revealing the full congressional chamber, camera movement steady and deliberate. The mood is tense and revealing, matching the investigative documentary tone."
+
+---
+
+## Step 9 — RunPod Animation
+
+`run_runpod_animation()` sends each `animated.txt` + its static asset to a RunPod serverless endpoint to produce an `animated.mp4` video clip.
+
+> **Placeholder config**: `RUNPOD_ENDPOINT` and `RUNPOD_MODEL` in `automate.py` must be replaced with real values before Step 9 can succeed. Set `RUNPOD_API_KEY` in `.keys`.
+
+### Scope
+
+Only static assets are animated — `video.mp4` files (Pexels stock downloads) are not processed.
+
+### `run_runpod_animation(ws)`
+
+1. Scan `assets/` recursively for `animated.txt` files
+2. For each `animated.txt`:
+   - Skip if sibling `animated.mp4` already exists (resumable)
+   - Find the static asset: `image.png` > `map.png` > `chart.png` (first found); warn and skip if none
+   - Read `animated.txt` as the animation prompt
+   - Base64-encode the static asset
+   - POST to `RUNPOD_ENDPOINT` with `{image, prompt, model}` in the `input` object
+   - Poll `/status/{job_id}` every 5 seconds (max 60 attempts / ~5 minutes)
+   - On `COMPLETED`: decode `output.video_bytes` → write `animated.mp4`
+   - On `FAILED` / timeout: log warning, continue to next asset
+3. If `RUNPOD_API_KEY` is empty, log a clear warning and exit early
+
+### Output
+
+`animated.mp4` in the same folder as the static asset, e.g. `assets/scene_1/asset_1/animated.mp4`.

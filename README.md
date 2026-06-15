@@ -22,11 +22,9 @@ The pipeline prompts you to select a domain, then runs all steps automatically. 
 ## CLI
 
 ```bash
-python automate.py                         # full run (ffmpeg assembler)
-python automate.py --assembler replicate   # use Replicate for final assembly
-python automate.py --assembler runpod      # use RunPod for final assembly
-python automate.py --step 7a              # re-run a single step
-python automate.py --status               # show step status table
+python automate.py           # full run
+python automate.py --step 7a # re-run a single step
+python automate.py --status  # show step status table
 ```
 
 ## Domains
@@ -45,8 +43,6 @@ Copy `.keys`, fill in your values, and `source .keys` before each session:
 | `ELEVENLABS_API_KEY` | ElevenLabs |
 | `PEXELS_API_KEY` | Pexels |
 | `PIXABAY_API_KEY` | Pixabay |
-| `REPLICATE_API_KEY` | Replicate (optional — only for `--assembler replicate`) |
-| `RUNPOD_API_KEY` | RunPod (optional — only for `--assembler runpod`) |
 
 ## Documentation
 
@@ -57,7 +53,7 @@ Copy `.keys`, fill in your values, and `source .keys` before each session:
 | [LLM Steps](docs/llm-steps.md) | Gemini runner, all text-generation steps (1–5, 8, 10, 13), platform metadata (2b) |
 | [Asset Generation](docs/asset-generation.md) | Step 6 fetch, Step 7a Imagen 4, Step 7b maps, Step 7c charts |
 | [Audio Generation](docs/audio-generation.md) | Step 9 ElevenLabs TTS, Step 11 music generation |
-| [Assembly](docs/assembly.md) | Step 14 — ffmpeg, Replicate, and RunPod assemblers with cost comparison |
+| [Assembly](docs/assembly.md) | Step 14 — ffmpeg assembly via `assemble.py` |
 
 ## Project Structure
 
@@ -75,9 +71,6 @@ prompts/
     08_narration.md
     10_music.md
     13_creative_director.md
-assembler/
-  replicate_assembler.py
-  runpod_assembler.py
 docs/                    # documentation
 .keys                    # API keys — gitignored, never commit
 workspace/               # generated workspaces — gitignored

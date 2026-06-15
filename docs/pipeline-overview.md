@@ -6,7 +6,7 @@
 flowchart TD
     USER([fa:fa-user User]) --> CMD{Command}
 
-    CMD -->|"python automate.py [--assembler X]"| FULL[Full Run]
+    CMD -->|python automate.py| FULL[Full Run]
     CMD -->|python automate.py --step N| SINGLE[Single Step]
     CMD -->|python automate.py --status| STATUS[Show Status]
 
@@ -26,7 +26,7 @@ flowchart TD
     WS_NEW --> S1
 
     subgraph PROMPTS ["📁 Domain Prompt Files"]
-        PF["prompts/{domain}/\n01_research · 02_story · 02b_platform_metadata\n03_scene_breakdown · 04_asset_planning · 05_asset_acquisition\n08_narration · 10_music · 13_creative_director"]
+        PF["prompts/{domain}/\n01_research · 02_story · 02b_platform_metadata\n03_scene_breakdown · 04_asset_planning · 05_asset_acquisition\n08_animation_prompt · 10_narration · 12_music · 16_creative_director"]
     end
 
     subgraph LLM ["🤖 Gemini 2.5 Pro — LLM Steps (fallback: 2.0 Flash)"]
@@ -47,65 +47,62 @@ flowchart TD
     PF -.->|load prompt for domain| S4
     PF -.->|load prompt for domain| S5
 
-    subgraph ASSETS ["📦 Asset Track (Steps 6–7)"]
+    subgraph ASSETS ["📦 Asset Track (Steps 6–9)"]
         S6["Step 6 · Fetch Assets (built-in)\nai_video → generated.txt\nmap → map_spec.json\nchart → chart_spec.json\nstock → Pexels download"]
         S7A["Step 7a · Imagen 4\nai_video assets → image.png"]
-        S7B["Step 7b · Map Renderer\nFolium → PNG\n± FLUX.1 img2img style"]
-        S7C["Step 7c · Chart Renderer\nmatplotlib → PNG\n± FLUX.1 img2img style"]
+        S7B["Step 7b · Map Renderer\nFolium → PNG"]
+        S7C["Step 7c · Chart Renderer\nmatplotlib → PNG"]
+        S8["Step 8 · Animation Prompt\nGemini → animated.txt per static asset"]
+        S9["Step 9 · RunPod Animation\nWan2.1 → animated.mp4 per static asset"]
         S6 --> S7A
         S6 --> S7B
         S6 --> S7C
-    end
-
-    subgraph NARRATION ["🎙️ Narration Track (Steps 8–9)"]
-        S8["Step 8 · Gemini\nNarration Script\nnarration_script.txt"]
-        S9["Step 9 · ElevenLabs v3 TTS\nnarration.mp3"]
+        S7A --> S8
+        S7B --> S8
+        S7C --> S8
         S8 --> S9
     end
 
-    subgraph MUSIC ["🎵 Music Track (Steps 10–11)"]
-        S10["Step 10 · Gemini\nMusic Prompt\nmusic_prompt.txt"]
-        S11["Step 11 · ElevenLabs v3 Music Gen\n22s clip → ffmpeg loop → 210s music.wav"]
+    subgraph NARRATION ["🎙️ Narration Track (Steps 10–11)"]
+        S10["Step 10 · Gemini\nNarration Script\nnarration_script.txt"]
+        S11["Step 11 · ElevenLabs v3 TTS\nnarration.mp3"]
         S10 --> S11
     end
 
-    subgraph ASSEMBLE ["🎬 Assembly (Steps 12–14)"]
-        S12["Step 12 · Asset Inventory\nasset_inventory.txt"]
-        S12B["Step 12b · Narration Timing\nnarration_timing.json"]
-        S13["Step 13 · Gemini\nEdit Decision List\nedl.json"]
-        S14_CHOICE{--assembler?}
-        S14_FFMPEG["Step 14 · ffmpeg\nassemble.py\nEDL-driven"]
-        S14_REP["Step 14 · Replicate\nEDL mode: SVD img→video\nCreative mode: CogVideoX"]
-        S14_RUN["Step 14 · RunPod\nEDL mode: SVD img→video\nCreative mode: Wan2.1-14B"]
-        S12 --> S12B --> S13 --> S14_CHOICE
-        S14_CHOICE -->|ffmpeg| S14_FFMPEG
-        S14_CHOICE -->|replicate| S14_REP
-        S14_CHOICE -->|runpod| S14_RUN
+    subgraph MUSIC ["🎵 Music Track (Steps 12–13)"]
+        S12["Step 12 · Gemini\nMusic Prompt\nmusic_prompt.txt"]
+        S13["Step 13 · ElevenLabs v3 Music Gen\n22s clip → ffmpeg loop → 210s music.wav"]
+        S12 --> S13
+    end
+
+    subgraph ASSEMBLE ["🎬 Assembly (Steps 14–17)"]
+        S14["Step 14 · Asset Inventory\nasset_inventory.txt"]
+        S15["Step 15 · Narration Timing\nnarration_timing.json"]
+        S16["Step 16 · Gemini\nEdit Decision List\nedl.json"]
+        S17["Step 17 · Final Assembly\nassemble.py → final_video.mp4"]
+        S14 --> S15 --> S16 --> S17
     end
 
     PF -.->|load prompt for domain| S8
     PF -.->|load prompt for domain| S10
-    PF -.->|load prompt for domain| S13
+    PF -.->|load prompt for domain| S12
+    PF -.->|load prompt for domain| S16
 
     S5 --> S6
-    S2 --> S8
-    S3 --> S10
+    S2 --> S10
+    S3 --> S12
 
-    S7A --> S12
-    S7B --> S12
-    S7C --> S12
-    S9 --> S12
-    S11 --> S12
+    S9 --> S14
+    S11 --> S14
+    S13 --> S14
 
-    S14_FFMPEG --> OUT([output/final_video.mp4])
-    S14_REP --> OUT
-    S14_RUN --> OUT
+    S17 --> OUT([output/final_video.mp4])
 
     subgraph STATE ["📋 State Management"]
-        STATEFILE["pipeline_state.json\ncompleted / failed / domain / voice_id / assembler"]
+        STATEFILE["pipeline_state.json\ncompleted / failed / domain / voice_id"]
     end
 
-    WS_NEW -.->|write domain + voice + assembler| STATEFILE
+    WS_NEW -.->|write domain + voice| STATEFILE
     STATEFILE -.->|skip if done| S2
     STATEFILE -.->|skip if done| S3
     STATEFILE -.->|skip if done| S4
@@ -113,7 +110,7 @@ flowchart TD
 
 ## Goals
 
-Replace all manual steps in `pipeline.py` with a single automated script `automate.py`. The script calls Gemini 2.5 Pro for all LLM and creative tasks, ElevenLabs v3 for narration and music, and Imagen 4 for AI image generation. Steps 12, 12b, and 14 call external scripts via subprocess (ffmpeg mode) or assembler modules (replicate/runpod modes).
+Replace all manual steps in `pipeline.py` with a single automated script `automate.py`. The script calls Gemini 2.5 Pro for all LLM and creative tasks, ElevenLabs v3 for narration and music, Imagen 4 for AI image generation, and RunPod for video animation. Steps 14, 15, and 17 call external scripts via subprocess.
 
 ## Key Decisions
 
@@ -121,37 +118,40 @@ Replace all manual steps in `pipeline.py` with a single automated script `automa
 |---------|----------|
 | LLM | `gemini-2.5-pro`; falls back to `gemini-2.0-flash` on 429 quota errors |
 | Image gen | Imagen 4 (`imagen-4.0-generate-001`) for `ai_video` assets (step 7a) |
-| Map gen | Folium → headless Playwright screenshot → optional FLUX.1 img2img style (step 7b) |
-| Chart gen | matplotlib → PNG → optional FLUX.1 img2img style (step 7c) |
+| Map gen | Folium → headless Playwright screenshot (step 7b) |
+| Chart gen | matplotlib → PNG (step 7c) |
 | TTS & Music | ElevenLabs model v3 |
 | Voice | Domain chosen upfront → maps to `DOMAIN_VOICE_MAP` |
 | Domains | Interactive menu at startup: `political`, `general_knowledge`, `science`, `business`, `history`, `sports`, `technology` |
 | Prompts | Domain-specific files under `prompts/{domain}/` |
 | Workspace | Scoped per domain — `workspace/{domain}/YYYY-MM-DD_HHMMSS/`; latest auto-resumed |
-| Resumability | `pipeline_state.json` tracks completed steps, domain, assembler |
+| Resumability | `pipeline_state.json` tracks completed steps and domain |
 | Platform metadata | Step 2b — Gemini generates YouTube title/description/hashtags/tags; stored in `platform_metadata.json` with a `youtube` key (IG/TikTok added later) |
-| Assembler | `--assembler ffmpeg` (default) \| `replicate` \| `runpod`; each supports EDL-driven and creative modes |
+| Video animation | RunPod serverless (Wan2.1) — `RUNPOD_ENDPOINT` is a placeholder; set before running step 9 |
+| Assembly | ffmpeg via `assemble.py` (step 17) driven by `edl.json` |
 | API keys | Loaded from `.keys` via `source .keys` before running |
 
 ## Execution Order
 
 ```
-1   → run_gemini_step()       # research_dossier.md
-2   → run_gemini_step()       # story_script.md
-2b  → run_gemini_step()       # platform_metadata.json (YouTube title, description, hashtags, tags)
-3   → run_gemini_step()       # scene_plan.md
-4   → run_gemini_step()       # asset_manifest.md
-5   → run_gemini_step()       # asset_acquisition.md
-6   → run_fetch_assets()      # generated.txt / map_spec.json / chart_spec.json / Pexels downloads
-7a  → run_imagen_generation() # image.png per ai_video asset
-7b  → run_map_generation()    # map.png per map asset (Folium + optional FLUX.1)
-7c  → run_chart_generation()  # chart.png per chart asset (matplotlib + optional FLUX.1)
-8   → run_gemini_step()       # narration_script.txt
-9   → run_elevenlabs_tts()    # narration.mp3
-10  → run_gemini_step()       # music_prompt.txt
-11  → run_elevenlabs_music()  # music.wav (22s clip → looped to 210s via ffmpeg)
-12  → run_script()            # asset_inventory.txt
-12b → run_script()            # narration_timing.json
-13  → run_gemini_step()       # edl.json
-14  → run_assembler()         # output/final_video.mp4
+1   → run_gemini_step()           # research_dossier.md
+2   → run_gemini_step()           # story_script.md
+2b  → run_gemini_step()           # platform_metadata.json (YouTube title, description, hashtags, tags)
+3   → run_gemini_step()           # scene_plan.md
+4   → run_gemini_step()           # asset_manifest.md
+5   → run_gemini_step()           # asset_acquisition.md
+6   → run_fetch_assets()          # generated.txt / map_spec.json / chart_spec.json / Pexels downloads
+7a  → run_imagen_generation()     # image.png per ai_video asset
+7b  → run_map_generation()        # map.png per map asset (Folium)
+7c  → run_chart_generation()      # chart.png per chart asset (matplotlib)
+8   → run_animation_prompt_step() # animated.txt per static asset (Gemini)
+9   → run_runpod_animation()      # animated.mp4 per static asset (RunPod — placeholder config)
+10  → run_gemini_step()           # narration_script.txt  [uses 08_narration.md]
+11  → run_elevenlabs_tts()        # narration.mp3
+12  → run_gemini_step()           # music_prompt.txt  [uses 10_music.md]
+13  → run_elevenlabs_music()      # music.wav (22s clip → looped to 210s via ffmpeg)
+14  → run_script()                # asset_inventory.txt
+15  → run_script()                # narration_timing.json
+16  → run_gemini_step()           # edl.json  [uses 13_creative_director.md]
+17  → run_script()                # output/final_video.mp4 (assemble.py)
 ```

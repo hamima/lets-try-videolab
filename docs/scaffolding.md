@@ -14,9 +14,6 @@ ELEVENLABS_MODEL   = "eleven_v3"
 
 IMAGEN_MODEL = "imagen-4.0-generate-001"
 
-REPLICATE_API_KEY = os.environ.get("REPLICATE_API_KEY", "")   # for --assembler replicate
-RUNPOD_API_KEY    = os.environ.get("RUNPOD_API_KEY", "")      # for --assembler runpod
-
 PEXELS_API_KEY  = os.environ["PEXELS_API_KEY"]
 PIXABAY_API_KEY = os.environ["PIXABAY_API_KEY"]
 
@@ -38,18 +35,15 @@ API keys are loaded from the environment. Run `source .keys` before executing th
 ## CLI
 
 ```
-python automate.py                         # full run (ffmpeg assembler)
-python automate.py --assembler replicate   # full run, Replicate assembler for Step 14
-python automate.py --assembler runpod      # full run, RunPod assembler for Step 14
-python automate.py --step 3               # re-run one step in the latest workspace
-python automate.py --step 12b             # step IDs can be strings (e.g. 12b)
-python automate.py --status               # print step table and exit
+python automate.py           # full run
+python automate.py --step 3  # re-run a single step in the latest workspace
+python automate.py --step 12b
+python automate.py --status  # print step status table and exit
 ```
 
-Use `argparse`. `--assembler` defaults to `ffmpeg`. All modes show the domain selection menu first.
+Use `argparse`. `--step` accepts int or string (for `12b`).
 
 ```python
-parser.add_argument("--assembler", choices=["ffmpeg", "replicate", "runpod"], default="ffmpeg")
 parser.add_argument("--step")
 parser.add_argument("--status", action="store_true")
 ```
@@ -74,8 +68,7 @@ Workspaces live at `workspace/{domain}/YYYY-MM-DD_HHMMSS/`.
   "completed": ["1", "2", "3"],
   "failed": [],
   "voice_id": "pNInz6obpgDQGcFmaJgB",
-  "domain": "political",
-  "assembler": "ffmpeg"
+  "domain": "political"
 }
 ```
 

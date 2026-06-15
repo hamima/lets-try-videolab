@@ -13,8 +13,10 @@ All text-generation steps share a single runner that loads a domain-specific pro
 ### Prompt file discovery
 
 ```python
-def resolve_prompt_file(step_id: str, domain: str) -> Path:
+def resolve_prompt_file(step_id: str, domain: str, prompt_file: str = None) -> Path:
     domain_dir = PROMPTS_DIR / domain
+    if prompt_file:
+        return domain_dir / prompt_file  # explicit override (rare, for edge cases)
     for f in domain_dir.iterdir():
         if re.match(rf"^0*{re.escape(step_id)}[_.]", f.name):
             return f
@@ -31,9 +33,10 @@ def resolve_prompt_file(step_id: str, domain: str) -> Path:
 | 3 | `03_scene_breakdown.md` | `{{story_script}}` | `scene_plan.md` |
 | 4 | `04_asset_planning.md` | `{{scene_plan}}` | `asset_manifest.md` |
 | 5 | `05_asset_acquisition.md` | `{{asset_manifest}}` | `asset_acquisition.md` |
-| 8 | `08_narration.md` | `{{story_script}}` | `narration_script.txt` |
-| 10 | `10_music.md` | `{{scene_plan}}` | `music_prompt.txt` |
-| 13 | `13_creative_director.md` | `{{asset_inventory}}` + `{{narration_timing}}` | `edl.json` |
+| 8 | `08_animation_prompt.md` | `{{ken_burns}}` + `{{visual_goal}}` + `{{asset_type}}` + `{{duration}}` + `{{story_excerpt}}` | `animated.txt` per static asset |
+| 10 | `10_narration.md` | `{{story_script}}` | `narration_script.txt` |
+| 12 | `12_music.md` | `{{scene_plan}}` | `music_prompt.txt` |
+| 16 | `16_creative_director.md` | `{{asset_inventory}}` + `{{narration_timing}}` | `edl.json` |
 
 ### Gemini API call with quota fallback
 

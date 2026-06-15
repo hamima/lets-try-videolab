@@ -1,10 +1,10 @@
-# Audio Generation — Steps 9 & 11
+# Audio Generation — Steps 11 & 13
 
-Both audio steps use the ElevenLabs v3 API. They run in parallel with the asset track (steps 6–7) — both tracks depend only on `story_script.md` and `scene_plan.md` respectively.
+Both audio steps use the ElevenLabs v3 API. They run after the asset track (steps 6–9) — the narration track depends on `story_script.md` (step 10) and the music track depends on `scene_plan.md` (step 12).
 
 ---
 
-## Step 9 — Narration TTS
+## Step 11 — Narration TTS
 
 ### `run_elevenlabs_tts(ws, state)`
 
@@ -32,7 +32,7 @@ response = requests.post(url, json=payload, headers=headers)
 
 ---
 
-## Step 11 — Music Generation
+## Step 13 — Music Generation
 
 ### `run_elevenlabs_music(ws)`
 
@@ -54,7 +54,7 @@ ffmpeg -stream_loop -1 -i music.wav -t 210 -af "afade=t=out:st=200:d=10" music_e
 
 6. Replace `music.wav` with the extended version. If ffmpeg fails, keep the 22s clip and log a warning.
 
-### Music prompt constraints (`10_music.md`)
+### Music prompt constraints (`10_music.md`, used by step 12)
 
 - Must specify "instrumental only, no vocals, soft background music" — plays under narration at 15% volume
 - Under 450 characters total (ElevenLabs hard limit) — aim for 300–420

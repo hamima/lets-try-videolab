@@ -4,10 +4,11 @@ Vid Life — Automated Pipeline
 ==============================
 
 Replaces all manual pipeline steps with API calls:
-  - Gemini 2.5 Pro  for LLM steps (1–5, 8, 10, 13); falls back to Gemini 2.0 Flash on quota errors
+  - Gemini 2.5 Pro  for LLM steps (1–5, 8, 10, 12, 16); falls back to Gemini 2.0 Flash on quota errors
   - Imagen 4        for AI image generation (step 7)
-  - ElevenLabs v3   for narration TTS (step 9) and music (step 11)
-  - Built-in        for asset fetching (step 6), inventory, timing, and assembly (steps 12, 12b, 14)
+  - RunPod          for video animation (step 9) — placeholder config, set RUNPOD_API_KEY + RUNPOD_ENDPOINT
+  - ElevenLabs v3   for narration TTS (step 11) and music (step 13)
+  - Built-in        for asset fetching (step 6), inventory, timing, and assembly (steps 14, 15, 17)
 
 Domain selection:
   An interactive numbered menu lets the user pick the documentary domain at startup.
@@ -47,7 +48,9 @@ GEMINI_API_KEY     = "${GEMINI_API_KEY}"
 ELEVENLABS_API_KEY = "${ELEVENLABS_API_KEY}"
 PEXELS_API_KEY     = "${PEXELS_API_KEY}"
 PIXABAY_API_KEY    = "${PEXELS_API_KEY}"
-
+RUNPOD_API_KEY     = os.environ.get("RUNPOD_API_KEY", "")
+RUNPOD_ENDPOINT    = "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/run"  # TODO: replace with real endpoint
+RUNPOD_MODEL       = "wan2.1"                                          # TODO: replace with real model
 
 # ─────────────────────────────────────────────────────────────
 # MODELS
@@ -70,7 +73,7 @@ DOMAIN_VOICE_MAP = {
     "science":           "N2lVS1w4EtoT3dr4eOWO",   # Callum
     "business":          "XB0fDUnXU5powFXDhCwa",   # Charlotte
     "history":           "IKne3meq5aSn9XLyUdCD",   # Charlie
-    "sports":            "ErXwobaYiN019PkySvjV",    # Antoni (placeholder — swap in settings)
+    "sports":            "ErXwobaYiN019PkySvjV",   # Antoni (placeholder — swap in settings)
     "technology":        "pqHfZKP75CvOlQylNhV4",   # Bill
 }
 SUPPORTED_DOMAINS = list(DOMAIN_VOICE_MAP.keys())
@@ -126,35 +129,43 @@ STEPS = [
         "output": "assets/",
     },
     {
-        "id": "8", "name": "Narration Script", "type": "gemini",
+        "id": "8", "name": "Animation Prompt", "type": "animation_prompt",
+        "output": "assets/",
+    },
+    {
+        "id": "9", "name": "RunPod Animation", "type": "runpod_animation",
+        "output": "assets/",
+    },
+    {
+        "id": "10", "name": "Narration Script", "type": "gemini",
         "inputs": {"story_script": "story_script.md"},
         "output": "narration_script.txt",
     },
     {
-        "id": "9", "name": "Narration Audio", "type": "tts",
+        "id": "11", "name": "Narration Audio", "type": "tts",
         "output": "narration.mp3",
     },
     {
-        "id": "10", "name": "Music Prompt", "type": "gemini",
+        "id": "12", "name": "Music Prompt", "type": "gemini",
         "inputs": {"scene_plan": "scene_plan.md"},
         "output": "music_prompt.txt",
     },
     {
-        "id": "11", "name": "Music Audio", "type": "music",
+        "id": "13", "name": "Music Audio", "type": "music",
         "output": "music.wav",
     },
     {
-        "id": "12", "name": "Asset Inventory", "type": "script",
+        "id": "14", "name": "Asset Inventory", "type": "script",
         "script": "generate_inventory.py",
         "output": "asset_inventory.txt",
     },
     {
-        "id": "12b", "name": "Narration Timing", "type": "script",
+        "id": "15", "name": "Narration Timing", "type": "script",
         "script": "analyze_timing.py",
         "output": "narration_timing.json",
     },
     {
-        "id": "13", "name": "Edit Decision List", "type": "gemini",
+        "id": "16", "name": "Edit Decision List", "type": "gemini",
         "inputs": {
             "asset_inventory":  "asset_inventory.txt",
             "narration_timing": "narration_timing.json",
@@ -162,7 +173,7 @@ STEPS = [
         "output": "edl.json",
     },
     {
-        "id": "14", "name": "Final Assembly", "type": "script",
+        "id": "17", "name": "Final Assembly", "type": "script",
         "script": "assemble.py",
         "output": "output/final_video.mp4",
     },
@@ -226,13 +237,16 @@ def save_state(ws: Path, state: dict) -> None:
 # PROMPT FILE RESOLVER
 # ─────────────────────────────────────────────────────────────
 
-def resolve_prompt_file(step_id: str, domain: str) -> Path:
+def resolve_prompt_file(step_id: str, domain: str, prompt_file: str = None) -> Path:
     """
     Find the prompt file for a step in the domain-specific prompts directory.
-    Naming conventions inside prompts/{domain}/:
+
+    If prompt_file is given, load that exact filename — used when step IDs were
+    renumbered but prompt filenames were not (e.g. step 10 still uses 08_narration.md).
+
+    Discovery conventions inside prompts/{domain}/ (used when prompt_file is None):
       - NN_name.md   (steps 1–5, e.g. 01_research.md)
-      - promptN.md   (steps 8, 10, e.g. prompt8.md)
-      - Override map (step 13 → 08_creative_director.md)
+      - promptN.md   (legacy, e.g. prompt8.md)
     """
     domain_dir = PROMPTS_DIR / domain
     if not domain_dir.exists():
@@ -240,6 +254,12 @@ def resolve_prompt_file(step_id: str, domain: str) -> Path:
             f"No prompt directory for domain '{domain}': {domain_dir}\n"
             f"Create the directory and add prompt files for this domain."
         )
+
+    if prompt_file:
+        p = domain_dir / prompt_file
+        if not p.exists():
+            raise FileNotFoundError(f"Prompt file not found: {p}")
+        return p
 
     for f in domain_dir.iterdir():
         if (re.match(rf"^0*{re.escape(step_id)}[_.]", f.name)
@@ -289,8 +309,9 @@ def gemini_generate(prompt: str, model: str = GEMINI_MODEL) -> str:
 
 def run_gemini_step(step: dict, ws: Path, state: dict) -> None:
     domain = state["domain"]
-    prompt_file = resolve_prompt_file(step["id"], domain)
-    prompt = prompt_file.read_text()
+    prompt_file_override = step.get("prompt_file")
+    prompt_path = resolve_prompt_file(step["id"], domain, prompt_file_override)
+    prompt = prompt_path.read_text()
 
     for var_name, filename in step.get("inputs", {}).items():
         src = ws / filename
@@ -301,8 +322,8 @@ def run_gemini_step(step: dict, ws: Path, state: dict) -> None:
     print(f"  Calling {GEMINI_MODEL} (fallback: {GEMINI_FALLBACK_MODEL})...")
     text = gemini_generate(prompt)
 
-    # Step 13: strip code fences, validate JSON
-    if step["id"] == "13":
+    # Step 16 (Edit Decision List): strip code fences, validate JSON
+    if step["id"] == "16":
         text = re.sub(r"^```(?:json)?\s*", "", text.strip())
         text = re.sub(r"\s*```$", "", text.strip())
         json.loads(text)  # raises ValueError if malformed
@@ -442,6 +463,256 @@ def run_imagen_generation(step: dict, ws: Path, state: dict) -> None:
             print(f"    → {out_img.relative_to(BASE_DIR)}")
         else:
             print(f"    [WARN] No image returned for {label}")
+
+
+def _parse_asset_manifest(text: str) -> dict:
+    """
+    Parse asset_manifest.md into a lookup dict keyed by (scene, asset).
+    Handles both 'SCENE X' (single asset per scene → asset defaults to '1')
+    and 'SCENE X / ASSET Y' or separate 'ASSET Y' lines.
+    Returns: {("1", "1"): {"ken_burns": "zoom_in", "visual_goal": "...", "duration": "5s"}, ...}
+    """
+    manifest = {}
+    for block in text.split("---"):
+        block = block.strip()
+        if not block:
+            continue
+
+        scene = None
+        asset = "1"
+        ken_burns = ""
+        visual_goal = ""
+        duration = ""
+
+        for line in block.splitlines():
+            stripped = line.strip()
+            # "SCENE X / ASSET Y" or "SCENE X"
+            if stripped.upper().startswith("SCENE "):
+                parts = re.split(r"\s*/\s*", stripped, maxsplit=1)
+                scene_part = parts[0].strip()
+                scene = scene_part.split()[-1]
+                if len(parts) > 1 and parts[1].upper().startswith("ASSET "):
+                    asset = parts[1].strip().split()[-1]
+            elif stripped.upper().startswith("ASSET "):
+                asset = stripped.split()[-1]
+            elif stripped.upper().startswith("KEN_BURNS:"):
+                ken_burns = stripped.split(":", 1)[1].strip().lower()
+            elif stripped.upper().startswith("VISUAL_GOAL:"):
+                visual_goal = stripped.split(":", 1)[1].strip()
+            elif stripped.upper().startswith("DURATION:"):
+                duration = stripped.split(":", 1)[1].strip()
+
+        if scene:
+            manifest[(scene, asset)] = {
+                "ken_burns": ken_burns,
+                "visual_goal": visual_goal,
+                "duration": duration,
+            }
+
+    return manifest
+
+
+def run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
+    """
+    Step 8 — For each static asset (image.png / map.png / chart.png), call Gemini
+    to write a one-paragraph cinematic animation description → animated.txt.
+    Skips assets that already have animated.txt (resumable).
+    """
+    domain = state["domain"]
+
+    # Load manifest metadata (KEN_BURNS + VISUAL_GOAL per scene/asset)
+    manifest_path = ws / "asset_manifest.md"
+    manifest = {}
+    if manifest_path.exists():
+        manifest = _parse_asset_manifest(manifest_path.read_text())
+
+    # Load story excerpt (first ~500 chars) for vibe injection
+    story_path = ws / "story_script.md"
+    story_excerpt = ""
+    if story_path.exists():
+        story_excerpt = story_path.read_text()[:500].strip()
+
+    # Load domain animation prompt template
+    prompt_template_path = resolve_prompt_file("8", domain)
+    prompt_template = prompt_template_path.read_text()
+
+    assets_dir = ws / "assets"
+    if not assets_dir.exists():
+        print("  No assets/ directory — skipping animation prompts")
+        return
+
+    static_files = []
+    for candidate in ("image.png", "map.png", "chart.png"):
+        static_files.extend(sorted(assets_dir.rglob(candidate)))
+
+    if not static_files:
+        print("  No static asset files found — skipping animation prompts")
+        return
+
+    processed = 0
+    for asset_file in static_files:
+        out_txt = asset_file.parent / "animated.txt"
+        if out_txt.exists():
+            label = asset_file.parent.relative_to(ws)
+            print(f"  Skip {label} — animated.txt exists")
+            continue
+
+        # Derive scene/asset numbers from folder path (scene_X/asset_Y)
+        parts = asset_file.parent.parts
+        scene_n = "1"
+        asset_n = "1"
+        for p in parts:
+            if p.startswith("scene_"):
+                scene_n = p.split("_", 1)[1]
+            elif p.startswith("asset_"):
+                asset_n = p.split("_", 1)[1]
+
+        meta = manifest.get((scene_n, asset_n), {})
+        ken_burns = meta.get("ken_burns", "zoom_in")
+        visual_goal = meta.get("visual_goal", "")
+        duration = meta.get("duration", "")
+
+        # Derive asset_type from filename
+        name_to_type = {"image.png": "ai_image", "map.png": "map", "chart.png": "chart"}
+        asset_type = name_to_type.get(asset_file.name, "image")
+
+        prompt = (
+            prompt_template
+            .replace("{{ken_burns}}", ken_burns)
+            .replace("{{visual_goal}}", visual_goal)
+            .replace("{{asset_type}}", asset_type)
+            .replace("{{story_excerpt}}", story_excerpt)
+            .replace("{{duration}}", duration)
+        )
+
+        label = asset_file.parent.relative_to(ws)
+        print(f"  Generating animation prompt: {label}...")
+        text = gemini_generate(prompt)
+        out_txt.write_text(text.strip())
+        print(f"    → {out_txt.relative_to(BASE_DIR)}")
+        processed += 1
+
+    if processed == 0:
+        print("  All animation prompts already exist — nothing to do")
+
+
+def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
+    """
+    Step 9 — For each animated.txt, call RunPod to animate the static asset → animated.mp4.
+    Skips assets that already have animated.mp4 (resumable).
+    NOTE: RUNPOD_ENDPOINT and RUNPOD_MODEL are placeholders — update before use.
+    """
+    import base64
+    import time as _time
+
+    try:
+        import requests
+    except ImportError:
+        print("[ERROR] Missing: pip install requests")
+        sys.exit(1)
+
+    assets_dir = ws / "assets"
+    if not assets_dir.exists():
+        print("  No assets/ directory — skipping RunPod animation")
+        return
+
+    animated_txts = sorted(assets_dir.rglob("animated.txt"))
+    if not animated_txts:
+        print("  No animated.txt files found — run step 8 first")
+        return
+
+    if not RUNPOD_API_KEY:
+        print("  [WARN] RUNPOD_API_KEY is not set — skipping RunPod animation")
+        print("  Set RUNPOD_API_KEY in .keys and re-run: python automate.py --step 9")
+        return
+
+    processed = 0
+    for txt_file in animated_txts:
+        out_mp4 = txt_file.parent / "animated.mp4"
+        if out_mp4.exists():
+            label = txt_file.parent.relative_to(ws)
+            print(f"  Skip {label} — animated.mp4 exists")
+            continue
+
+        # Find the static asset to animate
+        static_asset = None
+        for candidate in ("image.png", "map.png", "chart.png"):
+            candidate_path = txt_file.parent / candidate
+            if candidate_path.exists():
+                static_asset = candidate_path
+                break
+
+        if static_asset is None:
+            label = txt_file.parent.relative_to(ws)
+            print(f"  [WARN] {label}: no static asset found — skipping")
+            continue
+
+        animation_prompt = txt_file.read_text().strip()
+        image_b64 = base64.b64encode(static_asset.read_bytes()).decode("utf-8")
+
+        label = txt_file.parent.relative_to(ws)
+        print(f"  Submitting RunPod job: {label}...")
+
+        try:
+            response = requests.post(
+                RUNPOD_ENDPOINT,
+                headers={
+                    "Authorization": f"Bearer {RUNPOD_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "input": {
+                        "image": image_b64,
+                        "prompt": animation_prompt,
+                        "model": RUNPOD_MODEL,
+                    }
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            job_data = response.json()
+            job_id = job_data.get("id")
+            print(f"    Job ID: {job_id} — polling for completion...")
+
+            # Poll for completion (simple loop)
+            status_url = RUNPOD_ENDPOINT.replace("/run", f"/status/{job_id}")
+            for attempt in range(60):  # max ~5 minutes
+                _time.sleep(5)
+                status_resp = requests.get(
+                    status_url,
+                    headers={"Authorization": f"Bearer {RUNPOD_API_KEY}"},
+                    timeout=30,
+                )
+                status_resp.raise_for_status()
+                status_data = status_resp.json()
+                job_status = status_data.get("status", "")
+
+                if job_status == "COMPLETED":
+                    video_bytes = status_data.get("output", {}).get("video_bytes")
+                    if video_bytes:
+                        out_mp4.write_bytes(base64.b64decode(video_bytes))
+                        print(f"    → {out_mp4.relative_to(BASE_DIR)}")
+                    else:
+                        print(f"    [WARN] Job completed but no video_bytes in response")
+                    break
+                elif job_status in ("FAILED", "CANCELLED"):
+                    print(f"    [WARN] Job {job_id} {job_status}: {status_data.get('error', '')}")
+                    break
+                else:
+                    print(f"    [{attempt+1}/60] Status: {job_status}...")
+            else:
+                print(f"    [WARN] Job {job_id} timed out after 5 minutes")
+
+        except Exception as exc:
+            print(f"  [WARN] RunPod call failed for {label}: {exc}")
+            continue
+
+        processed += 1
+
+    if processed == 0 and not any(
+        (txt.parent / "animated.mp4").exists() for txt in animated_txts
+    ):
+        print("  No animated.mp4 files produced (check RUNPOD_API_KEY and RUNPOD_ENDPOINT)")
 
 
 def _parse_acquisition_doc(text: str) -> list[dict]:
@@ -608,6 +879,10 @@ def dispatch(step: dict, ws: Path, state: dict) -> None:
         run_gemini_step(step, ws, state)
     elif t == "imagen":
         run_imagen_generation(step, ws, state)
+    elif t == "animation_prompt":
+        run_animation_prompt_step(step, ws, state)
+    elif t == "runpod_animation":
+        run_runpod_animation(step, ws, state)
     elif t == "tts":
         run_elevenlabs_tts(step, ws, state)
     elif t == "music":
