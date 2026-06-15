@@ -1,0 +1,9 @@
+.venv/
+.claude/
+__pycache__/
+.vscode/
+workspace/
+output/
+.env
+*.env
+.keys
