@@ -6,7 +6,7 @@ Vid Life — Automated Pipeline
 Replaces all manual pipeline steps with API calls:
   - Gemini 2.5 Pro  for LLM steps (1–5, 8, 10, 12, 16); falls back to Gemini 2.0 Flash on quota errors
   - Imagen 4        for AI image generation (step 7)
-  - RunPod          for video animation (step 9) — placeholder config, set RUNPOD_API_KEY + RUNPOD_ENDPOINT
+  - ComfyUI (RunPod pod) for video animation (step 9) — set COMFYUI_URL in .keys
   - ElevenLabs v3   for narration TTS (step 11) and music (step 13)
   - Built-in        for asset fetching (step 6), inventory, timing, and assembly (steps 14, 15, 17)
 
@@ -48,9 +48,7 @@ GEMINI_API_KEY     = "${GEMINI_API_KEY}"
 ELEVENLABS_API_KEY = "${ELEVENLABS_API_KEY}"
 PEXELS_API_KEY     = "${PEXELS_API_KEY}"
 PIXABAY_API_KEY    = "${PEXELS_API_KEY}"
-RUNPOD_API_KEY     = os.environ.get("RUNPOD_API_KEY", "")
-RUNPOD_ENDPOINT    = "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/run"  # TODO: replace with real endpoint
-RUNPOD_MODEL       = "wan2.1"                                          # TODO: replace with real model
+COMFYUI_URL        = os.environ.get("COMFYUI_URL", "").rstrip("/")
 
 # ─────────────────────────────────────────────────────────────
 # MODELS
@@ -60,6 +58,27 @@ GEMINI_MODEL          = "gemini-2.5-pro"
 GEMINI_FALLBACK_MODEL = "gemini-2.0-flash"
 IMAGEN_MODEL     = "imagen-4.0-generate-001"
 ELEVENLABS_MODEL = "eleven_v3"
+
+# ─────────────────────────────────────────────────────────────
+# COMFYUI / WAN 2.1 ANIMATION CONFIG
+# ─────────────────────────────────────────────────────────────
+
+COMFYUI_FPS = 24
+
+# Ken Burns key → motion prefix prepended to the Wan 2.1 prompt
+BURN_KEY_PREFIXES = {
+    "zoom_in":   "slow push in,",
+    "zoom_out":  "slow pull back,",
+    "pan_left":  "camera pan left,",
+    "pan_right": "camera pan right,",
+}
+
+
+def _duration_to_frames(duration_str: str, fps: int = COMFYUI_FPS) -> int:
+    """Parse '10 seconds', '5s', '20', etc. → frame count (minimum 16 frames)."""
+    match = re.search(r"(\d+(?:\.\d+)?)", duration_str or "5")
+    seconds = float(match.group(1)) if match else 5.0
+    return max(16, int(seconds * fps))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -133,7 +152,7 @@ STEPS = [
         "output": "assets/",
     },
     {
-        "id": "9", "name": "RunPod Animation", "type": "runpod_animation",
+        "id": "9", "name": "ComfyUI Animation", "type": "runpod_animation",
         "output": "assets/",
     },
     {
@@ -590,6 +609,12 @@ def run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
         text = gemini_generate(prompt)
         out_txt.write_text(text.strip())
         print(f"    → {out_txt.relative_to(BASE_DIR)}")
+
+        # Write sidecar so Step 9 can read burn key + duration without re-parsing the manifest
+        meta_path = asset_file.parent / "asset_meta.json"
+        if not meta_path.exists():
+            meta_path.write_text(json.dumps({"ken_burns": ken_burns, "duration": duration}, indent=2))
+
         processed += 1
 
     if processed == 0:
@@ -598,11 +623,11 @@ def run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
 
 def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
     """
-    Step 9 — For each animated.txt, call RunPod to animate the static asset → animated.mp4.
+    Step 9 — For each animated.txt, submit image + prompt to ComfyUI (RunPod pod) running
+    Wan 2.1 I2V and download the resulting animated.mp4.
     Skips assets that already have animated.mp4 (resumable).
-    NOTE: RUNPOD_ENDPOINT and RUNPOD_MODEL are placeholders — update before use.
+    Requires COMFYUI_URL in .keys and wan_i2v_workflow.json at the repo root.
     """
-    import base64
     import time as _time
 
     try:
@@ -611,19 +636,25 @@ def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
         print("[ERROR] Missing: pip install requests")
         sys.exit(1)
 
+    if not COMFYUI_URL:
+        print("  [WARN] COMFYUI_URL is not set — skipping ComfyUI animation")
+        print("  Set COMFYUI_URL in .keys and re-run: python automate.py --step 9")
+        return
+
+    workflow_path = BASE_DIR / "wan_i2v_workflow.json"
+    if not workflow_path.exists():
+        print(f"  [ERROR] {workflow_path} not found — cannot run animation")
+        return
+    workflow_template = workflow_path.read_text()
+
     assets_dir = ws / "assets"
     if not assets_dir.exists():
-        print("  No assets/ directory — skipping RunPod animation")
+        print("  No assets/ directory — skipping ComfyUI animation")
         return
 
     animated_txts = sorted(assets_dir.rglob("animated.txt"))
     if not animated_txts:
         print("  No animated.txt files found — run step 8 first")
-        return
-
-    if not RUNPOD_API_KEY:
-        print("  [WARN] RUNPOD_API_KEY is not set — skipping RunPod animation")
-        print("  Set RUNPOD_API_KEY in .keys and re-run: python automate.py --step 9")
         return
 
     processed = 0
@@ -647,64 +678,108 @@ def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
             print(f"  [WARN] {label}: no static asset found — skipping")
             continue
 
+        # Read animation prompt
         animation_prompt = txt_file.read_text().strip()
-        image_b64 = base64.b64encode(static_asset.read_bytes()).decode("utf-8")
+
+        # Read burn key + duration from sidecar (written by step 8)
+        meta_path = txt_file.parent / "asset_meta.json"
+        ken_burns = "zoom_in"
+        duration = "5 seconds"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text())
+            ken_burns = meta.get("ken_burns", ken_burns)
+            duration = meta.get("duration", duration)
+
+        # Build final prompt: motion prefix + animation description
+        motion_prefix = BURN_KEY_PREFIXES.get(ken_burns, "")
+        final_prompt = f"{motion_prefix} {animation_prompt}".strip() if motion_prefix else animation_prompt
+        frame_count = _duration_to_frames(duration)
 
         label = txt_file.parent.relative_to(ws)
-        print(f"  Submitting RunPod job: {label}...")
+        print(f"  Animating {label} ({frame_count} frames @ {COMFYUI_FPS}fps)...")
 
         try:
-            response = requests.post(
-                RUNPOD_ENDPOINT,
-                headers={
-                    "Authorization": f"Bearer {RUNPOD_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "input": {
-                        "image": image_b64,
-                        "prompt": animation_prompt,
-                        "model": RUNPOD_MODEL,
-                    }
-                },
-                timeout=30,
-            )
-            response.raise_for_status()
-            job_data = response.json()
-            job_id = job_data.get("id")
-            print(f"    Job ID: {job_id} — polling for completion...")
-
-            # Poll for completion (simple loop)
-            status_url = RUNPOD_ENDPOINT.replace("/run", f"/status/{job_id}")
-            for attempt in range(60):  # max ~5 minutes
-                _time.sleep(5)
-                status_resp = requests.get(
-                    status_url,
-                    headers={"Authorization": f"Bearer {RUNPOD_API_KEY}"},
+            # 1. Upload image to ComfyUI
+            with static_asset.open("rb") as img_f:
+                upload_resp = requests.post(
+                    f"{COMFYUI_URL}/upload/image",
+                    files={"image": (static_asset.name, img_f, "image/png")},
                     timeout=30,
                 )
-                status_resp.raise_for_status()
-                status_data = status_resp.json()
-                job_status = status_data.get("status", "")
+            upload_resp.raise_for_status()
+            uploaded_filename = upload_resp.json()["name"]
 
-                if job_status == "COMPLETED":
-                    video_bytes = status_data.get("output", {}).get("video_bytes")
-                    if video_bytes:
-                        out_mp4.write_bytes(base64.b64decode(video_bytes))
-                        print(f"    → {out_mp4.relative_to(BASE_DIR)}")
-                    else:
-                        print(f"    [WARN] Job completed but no video_bytes in response")
-                    break
-                elif job_status in ("FAILED", "CANCELLED"):
-                    print(f"    [WARN] Job {job_id} {job_status}: {status_data.get('error', '')}")
-                    break
-                else:
-                    print(f"    [{attempt+1}/60] Status: {job_status}...")
+            # 2. Build workflow from template
+            workflow_json = (
+                workflow_template
+                .replace("__IMAGE_FILENAME__", uploaded_filename)
+                .replace('"__PROMPT__"', json.dumps(final_prompt))
+                .replace("__FRAME_COUNT__", str(frame_count))
+            )
+            workflow = json.loads(workflow_json)
+
+            # 3. Submit workflow to ComfyUI
+            submit_resp = requests.post(
+                f"{COMFYUI_URL}/prompt",
+                json={"prompt": workflow},
+                timeout=30,
+            )
+            submit_resp.raise_for_status()
+            prompt_id = submit_resp.json()["prompt_id"]
+            print(f"    Prompt ID: {prompt_id} — polling...")
+
+            # 4. Poll /history until complete (max 10 minutes)
+            output_filename = None
+            for attempt in range(120):
+                _time.sleep(5)
+                history_resp = requests.get(
+                    f"{COMFYUI_URL}/history/{prompt_id}",
+                    timeout=30,
+                )
+                history_resp.raise_for_status()
+                history = history_resp.json()
+
+                if prompt_id not in history:
+                    print(f"    [{attempt+1}/120] Waiting...")
+                    continue
+
+                entry = history[prompt_id]
+                if not entry.get("status", {}).get("completed", False):
+                    status_str = entry.get("status", {}).get("status_str", "processing")
+                    print(f"    [{attempt+1}/120] {status_str}...")
+                    continue
+
+                # Job complete — find video filename in outputs
+                outputs = entry.get("outputs", {})
+                for node_output in outputs.values():
+                    for key in ("gifs", "videos", "images"):
+                        files = node_output.get(key, [])
+                        if files:
+                            output_filename = files[0].get("filename")
+                            break
+                    if output_filename:
+                        break
+                break
             else:
-                print(f"    [WARN] Job {job_id} timed out after 5 minutes")
+                print(f"    [WARN] Timed out after 10 minutes for {label}")
+                continue
+
+            if not output_filename:
+                print(f"    [WARN] Job completed but no output file found for {label}")
+                continue
+
+            # 5. Download video
+            download_resp = requests.get(
+                f"{COMFYUI_URL}/view",
+                params={"filename": output_filename, "type": "output"},
+                timeout=60,
+            )
+            download_resp.raise_for_status()
+            out_mp4.write_bytes(download_resp.content)
+            print(f"    → {out_mp4.relative_to(BASE_DIR)}")
 
         except Exception as exc:
-            print(f"  [WARN] RunPod call failed for {label}: {exc}")
+            print(f"  [WARN] ComfyUI call failed for {label}: {exc}")
             continue
 
         processed += 1
@@ -712,7 +787,7 @@ def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
     if processed == 0 and not any(
         (txt.parent / "animated.mp4").exists() for txt in animated_txts
     ):
-        print("  No animated.mp4 files produced (check RUNPOD_API_KEY and RUNPOD_ENDPOINT)")
+        print("  No animated.mp4 files produced (check COMFYUI_URL and wan_i2v_workflow.json)")
 
 
 def _parse_acquisition_doc(text: str) -> list[dict]:
