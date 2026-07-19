@@ -29,7 +29,7 @@ def resolve_prompt_file(step_id: str, domain: str, prompt_file: str = None) -> P
 |------|-------------|-------------------|-------------|
 | 1 | `01_research.md` | none | `research_dossier.md` |
 | 2 | `02_story.md` | `{{research_dossier}}` | `story_script.md` |
-| 2b | `02b_platform_metadata.md` | `{{story_script}}` | `platform_metadata.json` |
+| 18 | `02b_platform_metadata.md` | `{{research_dossier}}` + `{{story_script}}` | `platform_metadata.json` |
 | 3 | `03_scene_breakdown.md` | `{{story_script}}` | `scene_plan.md` |
 | 4 | `04_asset_planning.md` | `{{scene_plan}}` | `asset_manifest.md` |
 | 5 | `05_asset_acquisition.md` | `{{asset_manifest}}` | `asset_acquisition.md` |

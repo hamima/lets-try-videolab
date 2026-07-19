@@ -6,7 +6,7 @@ Vid Life — Automated Pipeline
 Replaces all manual pipeline steps with API calls:
   - Gemini 2.5 Pro  for LLM steps (1–5, 8, 10, 12, 16); falls back to Gemini 2.0 Flash on quota errors
   - Imagen 4        for AI image generation (step 7)
-  - ComfyUI (RunPod pod) for video animation (step 9) — set COMFYUI_URL in .keys
+  - Wan2.2 I2V server (RunPod pod) for video animation (step 9) — set RUNPOD_URL in .keys
   - ElevenLabs v3   for narration TTS (step 11) and music (step 13)
   - Built-in        for asset fetching (step 6), inventory, timing, and assembly (steps 14, 15, 17)
 
@@ -44,11 +44,11 @@ from datetime import datetime
 # API KEYS
 # ─────────────────────────────────────────────────────────────
 
-GEMINI_API_KEY     = "${GEMINI_API_KEY}"
-ELEVENLABS_API_KEY = "${ELEVENLABS_API_KEY}"
-PEXELS_API_KEY     = "${PEXELS_API_KEY}"
-PIXABAY_API_KEY    = "${PEXELS_API_KEY}"
-COMFYUI_URL        = os.environ.get("COMFYUI_URL", "").rstrip("/")
+GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+PEXELS_API_KEY     = os.environ.get("PEXELS_API_KEY", "")
+PIXABAY_API_KEY    = os.environ.get("PIXABAY_API_KEY", "")
+RUNPOD_URL         = os.environ.get("RUNPOD_URL", "").rstrip("/")
 
 # ─────────────────────────────────────────────────────────────
 # MODELS
@@ -60,12 +60,10 @@ IMAGEN_MODEL     = "imagen-4.0-generate-001"
 ELEVENLABS_MODEL = "eleven_v3"
 
 # ─────────────────────────────────────────────────────────────
-# COMFYUI / WAN 2.1 ANIMATION CONFIG
+# WAN 2.2 I2V ANIMATION CONFIG
 # ─────────────────────────────────────────────────────────────
 
-COMFYUI_FPS = 24
-
-# Ken Burns key → motion prefix prepended to the Wan 2.1 prompt
+# Ken Burns key → motion prefix prepended to the Wan 2.2 prompt
 BURN_KEY_PREFIXES = {
     "zoom_in":   "slow push in,",
     "zoom_out":  "slow pull back,",
@@ -74,11 +72,11 @@ BURN_KEY_PREFIXES = {
 }
 
 
-def _duration_to_frames(duration_str: str, fps: int = COMFYUI_FPS) -> int:
-    """Parse '10 seconds', '5s', '20', etc. → frame count (minimum 16 frames)."""
+def _duration_to_seconds(duration_str: str) -> int:
+    """Parse '10 seconds', '5s', '20', etc. → integer seconds (minimum 1)."""
     match = re.search(r"(\d+(?:\.\d+)?)", duration_str or "5")
     seconds = float(match.group(1)) if match else 5.0
-    return max(16, int(seconds * fps))
+    return max(1, int(seconds))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -94,6 +92,7 @@ DOMAIN_VOICE_MAP = {
     "history":           "IKne3meq5aSn9XLyUdCD",   # Charlie
     "sports":            "ErXwobaYiN019PkySvjV",   # Antoni (placeholder — swap in settings)
     "technology":        "pqHfZKP75CvOlQylNhV4",   # Bill
+    "general":           "pqHfZKP75CvOlQylNhV4",   # Bill
 }
 SUPPORTED_DOMAINS = list(DOMAIN_VOICE_MAP.keys())
 
@@ -196,6 +195,15 @@ STEPS = [
         "script": "assemble.py",
         "output": "output/final_video.mp4",
     },
+    {
+        "id": "18", "name": "Platform Metadata", "type": "gemini",
+        "prompt_file": "02b_platform_metadata.md",
+        "inputs": {
+            "research_dossier": "research_dossier.md",
+            "story_script":     "story_script.md",
+        },
+        "output": "platform_metadata.json",
+    },
 ]
 
 
@@ -227,8 +235,26 @@ def new_workspace(domain: str) -> Path:
     return ws
 
 
+def find_workspace(domain: str, identifier: str) -> Path:
+    """Find a workspace whose folder name contains the given identifier (e.g. '200619')."""
+    domain_dir = WORKSPACE_ROOT / domain
+    if not domain_dir.exists():
+        raise RuntimeError(f"No workspaces found for '{domain}'.")
+    candidates = [
+        d for d in domain_dir.iterdir()
+        if d.is_dir() and re.match(r"\d{4}-\d{2}-\d{2}_\d{6}", d.name) and identifier in d.name
+    ]
+    if not candidates:
+        raise RuntimeError(f"No workspace matching '{identifier}' found for '{domain}'.")
+    if len(candidates) > 1:
+        names = ", ".join(d.name for d in sorted(candidates))
+        raise RuntimeError(f"Ambiguous identifier '{identifier}' matches multiple workspaces: {names}")
+    return candidates[0]
+
+
 def latest_workspace(domain: str) -> Path:
     domain_dir = WORKSPACE_ROOT / domain
+    
     if not domain_dir.exists():
         raise RuntimeError(f"No workspaces found for '{domain}'.")
     candidates = sorted(
@@ -236,6 +262,7 @@ def latest_workspace(domain: str) -> Path:
          if d.is_dir() and re.match(r"\d{4}-\d{2}-\d{2}_\d{6}", d.name)],
         reverse=True,
     )
+    print(f"  Searching for latest workspace in: {domain_dir}")
     if not candidates:
         raise RuntimeError(f"No workspaces found for '{domain}'.")
     return candidates[0]
@@ -298,6 +325,7 @@ def resolve_prompt_file(step_id: str, domain: str, prompt_file: str = None) -> P
 def _gemini_client():
     try:
         from google import genai
+        print(f"  Using Gemini API key: {GEMINI_API_KEY[:4]}...{GEMINI_API_KEY[-4:]}")
         return genai.Client(api_key=GEMINI_API_KEY)
     except ImportError:
         print("[ERROR] Missing: pip install google-genai")
@@ -441,7 +469,7 @@ def run_elevenlabs_music(step: dict, ws: Path, state: dict) -> None:
         print(f"  [WARN] ffmpeg loop failed — keeping 22s clip. stderr: {result.stderr[-200:]}")
 
 
-def run_imagen_generation(step: dict, ws: Path, state: dict) -> None:
+def run_imagen_generation(step: dict, ws: Path, state: dict, clean: bool = False) -> None:
     try:
         from google import genai
         from google.genai import types
@@ -454,34 +482,82 @@ def run_imagen_generation(step: dict, ws: Path, state: dict) -> None:
         print("  No assets/ directory — skipping image generation")
         return
 
+    if clean:
+        removed = 0
+        for pattern in ("image.png", "image.jpg", "blocked.txt"):
+            for f in assets_dir.rglob(pattern):
+                f.unlink()
+                removed += 1
+        print(f"  [CLEAN] Removed {removed} existing image/blocked files — regenerating all")
+        return
+
+    # ── Web-fetch pass: search_query.txt → image.jpg ──────────────────────────
+    search_txts = sorted(assets_dir.rglob("search_query.txt"))
+    for sq_file in search_txts:
+        out_img = sq_file.parent / "image.jpg"
+        label = sq_file.parent.relative_to(ws)
+        if out_img.exists():
+            print(f"  [SKIP] {label} — image.jpg exists")
+            continue
+        query = sq_file.read_text().strip()
+        print(f"  Fetching real image: {label} — '{query}'...")
+        if not _fetch_real_image(query, sq_file.parent):
+            print(f"    [WARN] No image found for '{query}'")
+        else:
+            print(f"    → {out_img.relative_to(BASE_DIR)}")
+
+    # ── Imagen pass: generated.txt → image.png ─────────────────────────────
     generated_txts = sorted(assets_dir.rglob("generated.txt"))
     if not generated_txts:
-        print("  No generated.txt files found in assets/")
+        if not search_txts:
+            print("  No generated.txt or search_query.txt files found in assets/")
         return
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
+    total = len(generated_txts)
+    skipped = failed = 0
+
     for txt_file in generated_txts:
         out_img = txt_file.parent / "image.png"
+        label = txt_file.parent.relative_to(ws)
+
         if out_img.exists():
-            print(f"  Skip {txt_file.parent.relative_to(ws)} — image.png exists")
+            print(f"  [SKIP] {label} — image.png exists")
+            skipped += 1
             continue
 
         image_prompt = txt_file.read_text().strip()
-        label = txt_file.parent.relative_to(ws)
         print(f"  Generating image: {label}...")
 
-        response = client.models.generate_images(
-            model=IMAGEN_MODEL,
-            prompt=image_prompt,
-            config=types.GenerateImagesConfig(number_of_images=1),
-        )
+        blocked_marker = txt_file.parent / "blocked.txt"
+        if blocked_marker.exists():
+            print(f"  [SKIP] {label} — previously blocked by safety filter")
+            skipped += 1
+            continue
 
-        if response.generated_images:
-            out_img.write_bytes(response.generated_images[0].image.image_bytes)
-            print(f"    → {out_img.relative_to(BASE_DIR)}")
-        else:
-            print(f"    [WARN] No image returned for {label}")
+        try:
+            response = client.models.generate_images(
+                model=IMAGEN_MODEL,
+                prompt=image_prompt,
+                config=types.GenerateImagesConfig(number_of_images=1),
+            )
+            if response.generated_images:
+                out_img.write_bytes(response.generated_images[0].image.image_bytes)
+                print(f"    → {out_img.relative_to(BASE_DIR)}")
+            else:
+                reason = getattr(response, "rai_filtered_reason", None) or "likely safety filter (real people / restricted content)"
+                print(f"    [BLOCKED] {label}: {reason}")
+                blocked_marker.write_text(reason)
+                failed += 1
+        except Exception as exc:
+            print(f"    [WARN] Failed {label}: {exc} — will retry on next run")
+            failed += 1
+
+    pending = total - skipped - failed
+    print(f"\n  Summary: {total} assets | {skipped} skipped | {total - skipped - failed} generated | {failed} failed")
+    if failed:
+        print(f"  Re-run this step to retry the {failed} failed asset(s).")
 
 
 def _parse_asset_manifest(text: str) -> dict:
@@ -623,10 +699,10 @@ def run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
 
 def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
     """
-    Step 9 — For each animated.txt, submit image + prompt to ComfyUI (RunPod pod) running
-    Wan 2.1 I2V and download the resulting animated.mp4.
+    Step 9 — For each animated.txt, submit image + prompt to the Wan2.2 I2V server
+    running on a RunPod pod and download the resulting animated.mp4.
     Skips assets that already have animated.mp4 (resumable).
-    Requires COMFYUI_URL in .keys and wan_i2v_workflow.json at the repo root.
+    Requires RUNPOD_URL in .keys (set to the pod proxy URL for port 8000).
     """
     import time as _time
 
@@ -636,20 +712,14 @@ def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
         print("[ERROR] Missing: pip install requests")
         sys.exit(1)
 
-    if not COMFYUI_URL:
-        print("  [WARN] COMFYUI_URL is not set — skipping ComfyUI animation")
-        print("  Set COMFYUI_URL in .keys and re-run: python automate.py --step 9")
+    if not RUNPOD_URL:
+        print("  [WARN] RUNPOD_URL is not set — skipping animation")
+        print("  Set RUNPOD_URL in .keys and re-run: python automate.py --step 9")
         return
-
-    workflow_path = BASE_DIR / "wan_i2v_workflow.json"
-    if not workflow_path.exists():
-        print(f"  [ERROR] {workflow_path} not found — cannot run animation")
-        return
-    workflow_template = workflow_path.read_text()
 
     assets_dir = ws / "assets"
     if not assets_dir.exists():
-        print("  No assets/ directory — skipping ComfyUI animation")
+        print("  No assets/ directory — skipping animation")
         return
 
     animated_txts = sorted(assets_dir.rglob("animated.txt"))
@@ -693,93 +763,63 @@ def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
         # Build final prompt: motion prefix + animation description
         motion_prefix = BURN_KEY_PREFIXES.get(ken_burns, "")
         final_prompt = f"{motion_prefix} {animation_prompt}".strip() if motion_prefix else animation_prompt
-        frame_count = _duration_to_frames(duration)
+        duration_seconds = _duration_to_seconds(duration)
 
         label = txt_file.parent.relative_to(ws)
-        print(f"  Animating {label} ({frame_count} frames @ {COMFYUI_FPS}fps)...")
+        print(f"  Animating {label} ({duration_seconds}s)...")
 
         try:
-            # 1. Upload image to ComfyUI
+            # 1. Submit: POST /generate with image + prompt + duration
             with static_asset.open("rb") as img_f:
-                upload_resp = requests.post(
-                    f"{COMFYUI_URL}/upload/image",
+                submit_resp = requests.post(
+                    f"{RUNPOD_URL}/generate",
                     files={"image": (static_asset.name, img_f, "image/png")},
+                    data={"prompt": final_prompt, "duration_seconds": duration_seconds},
                     timeout=30,
                 )
-            upload_resp.raise_for_status()
-            uploaded_filename = upload_resp.json()["name"]
-
-            # 2. Build workflow from template
-            workflow_json = (
-                workflow_template
-                .replace("__IMAGE_FILENAME__", uploaded_filename)
-                .replace('"__PROMPT__"', json.dumps(final_prompt))
-                .replace("__FRAME_COUNT__", str(frame_count))
-            )
-            workflow = json.loads(workflow_json)
-
-            # 3. Submit workflow to ComfyUI
-            submit_resp = requests.post(
-                f"{COMFYUI_URL}/prompt",
-                json={"prompt": workflow},
-                timeout=30,
-            )
             submit_resp.raise_for_status()
-            prompt_id = submit_resp.json()["prompt_id"]
-            print(f"    Prompt ID: {prompt_id} — polling...")
+            job_id = submit_resp.json()["job_id"]
+            print(f"    Job ID: {job_id} — polling...")
 
-            # 4. Poll /history until complete (max 10 minutes)
-            output_filename = None
+            # 2. Poll GET /status/{job_id} every 5s (max 10 minutes)
             for attempt in range(120):
                 _time.sleep(5)
-                history_resp = requests.get(
-                    f"{COMFYUI_URL}/history/{prompt_id}",
+                status_resp = requests.get(
+                    f"{RUNPOD_URL}/status/{job_id}",
                     timeout=30,
                 )
-                history_resp.raise_for_status()
-                history = history_resp.json()
+                status_resp.raise_for_status()
+                job_status = status_resp.json()["status"]
 
-                if prompt_id not in history:
-                    print(f"    [{attempt+1}/120] Waiting...")
-                    continue
-
-                entry = history[prompt_id]
-                if not entry.get("status", {}).get("completed", False):
-                    status_str = entry.get("status", {}).get("status_str", "processing")
-                    print(f"    [{attempt+1}/120] {status_str}...")
-                    continue
-
-                # Job complete — find video filename in outputs
-                outputs = entry.get("outputs", {})
-                for node_output in outputs.values():
-                    for key in ("gifs", "videos", "images"):
-                        files = node_output.get(key, [])
-                        if files:
-                            output_filename = files[0].get("filename")
-                            break
-                    if output_filename:
-                        break
-                break
+                if job_status == "done":
+                    break
+                if job_status == "failed":
+                    error_msg = status_resp.json().get("error", "unknown error")
+                    print(f"    [WARN] Job failed for {label}: {error_msg}")
+                    break
+                print(f"    [{attempt+1}/120] {job_status}...")
             else:
                 print(f"    [WARN] Timed out after 10 minutes for {label}")
                 continue
 
-            if not output_filename:
-                print(f"    [WARN] Job completed but no output file found for {label}")
+            if job_status != "done":
                 continue
 
-            # 5. Download video
+            # 3. Download: GET /download/{job_id} — stream to animated.mp4
             download_resp = requests.get(
-                f"{COMFYUI_URL}/view",
-                params={"filename": output_filename, "type": "output"},
-                timeout=60,
+                f"{RUNPOD_URL}/download/{job_id}",
+                timeout=120,
+                stream=True,
             )
             download_resp.raise_for_status()
-            out_mp4.write_bytes(download_resp.content)
+            with out_mp4.open("wb") as f:
+                for chunk in download_resp.iter_content(chunk_size=65536):
+                    if chunk:
+                        f.write(chunk)
             print(f"    → {out_mp4.relative_to(BASE_DIR)}")
 
         except Exception as exc:
-            print(f"  [WARN] ComfyUI call failed for {label}: {exc}")
+            print(f"  [WARN] RunPod server call failed for {label}: {exc}")
             continue
 
         processed += 1
@@ -787,42 +827,192 @@ def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
     if processed == 0 and not any(
         (txt.parent / "animated.mp4").exists() for txt in animated_txts
     ):
-        print("  No animated.mp4 files produced (check COMFYUI_URL and wan_i2v_workflow.json)")
+        print("  No animated.mp4 files produced (check RUNPOD_URL and pod server logs)")
 
 
 def _parse_acquisition_doc(text: str) -> list[dict]:
-    """Parse asset_acquisition.md into a list of asset dicts."""
-    assets = []
-    for block in text.split("---"):
-        block = block.strip()
-        if not block:
-            continue
+    """Parse asset_acquisition.md into a list of asset dicts.
 
-        asset: dict = {}
+    Each asset block starts with a 'SCENE N' line (no --- separators needed).
+    """
+    assets: list[dict] = []
+    asset: dict = {}
+    key: str | None = None
+    value_lines: list[str] = []
+
+    def _flush_key() -> None:
+        nonlocal key, value_lines
+        if key is not None and asset:
+            asset[key] = "\n".join(value_lines).strip()
         key = None
-        value_lines: list[str] = []
+        value_lines = []
 
-        for line in block.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("SCENE "):
-                asset["scene"] = stripped.split()[-1]
-            elif stripped.startswith("ASSET "):
-                asset["asset"] = stripped.split()[-1]
-            elif stripped.endswith(":") and stripped.rstrip(":").replace("_", "").isupper():
-                if key:
-                    asset[key] = "\n".join(value_lines).strip()
-                key = stripped.rstrip(":").lower()
-                value_lines = []
-            elif key:
+    def _flush_asset() -> None:
+        _flush_key()
+        if "scene" in asset and "asset" in asset:
+            assets.append(dict(asset))
+        asset.clear()
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("SCENE "):
+            if "scene" in asset:   # new block starting — save the previous one
+                _flush_asset()
+            _flush_key()
+            asset["scene"] = stripped.split()[-1]
+        elif stripped.startswith("ASSET "):
+            _flush_key()
+            asset["asset"] = stripped.split()[-1]
+        else:
+            # Match both "KEY:" (value on next line) and "KEY: value" (inline)
+            m = re.match(r'^([A-Z][A-Z_]+):\s*(.*)$', stripped)
+            if m:
+                _flush_key()
+                key = m.group(1).lower()
+                inline = m.group(2).strip()
+                if inline:
+                    value_lines = [inline]
+            elif key is not None:
                 value_lines.append(stripped)
 
-        if key:
-            asset[key] = "\n".join(value_lines).strip()
-
-        if "scene" in asset and "asset" in asset:
-            assets.append(asset)
-
+    _flush_asset()   # save the last asset
     return assets
+
+
+def _fetch_real_image(query: str, out_dir: Path) -> bool:
+    """
+    Fetch a real-world image for anything AI generation can't handle.
+
+    Strategy (falls through on failure or 429):
+      1. Wikipedia pageimages API  — best for named people & famous places
+      2. Wikimedia Commons search  — broader fallback for events & objects
+      3. Pexels photo search       — last resort for anything else
+    """
+    import time as _time
+    try:
+        import requests
+    except ImportError:
+        print("[ERROR] Missing: pip install requests")
+        return False
+
+    headers = {"User-Agent": "VidLifePipeline/1.0 (documentary video generator)"}
+    out_img = out_dir / "image.jpg"
+
+    def _is_rate_limited(exc: Exception) -> bool:
+        return "429" in str(exc)
+
+    def _save_if_valid(img_url: str) -> bool:
+        """Download img_url, verify it's a raster image, save as image.jpg. Returns True on success."""
+        resp = requests.get(img_url, headers=headers, timeout=60)
+        resp.raise_for_status()
+        content_type = resp.headers.get("Content-Type", "")
+        data = resp.content
+        # Reject HTML, SVG, and empty responses
+        if not data:
+            print(f"      [WARN] Empty response from {img_url}")
+            return False
+        if "html" in content_type or "svg" in content_type:
+            print(f"      [WARN] Non-image content-type '{content_type}' — skipping")
+            return False
+        # Verify raster magic bytes: JPEG (FF D8 FF) or PNG (89 50 4E 47)
+        if not (data[:3] == b'\xff\xd8\xff' or data[:4] == b'\x89PNG'):
+            print(f"      [WARN] Response is not a valid JPEG/PNG (got {data[:4].hex()}) — skipping")
+            return False
+        out_img.write_bytes(data)
+        return True
+
+    # 1. Wikipedia pageimages — great for people and famous entities
+    try:
+        r = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "titles": query,
+                "prop": "pageimages",
+                "format": "json",
+                "pithumbsize": 1200,
+                "pilicense": "any",
+            },
+            headers=headers,
+            timeout=30,
+        )
+        r.raise_for_status()
+        pages = r.json().get("query", {}).get("pages", {})
+        for page in pages.values():
+            img_url = page.get("thumbnail", {}).get("source")
+            if img_url and _save_if_valid(img_url):
+                print(f"      source: Wikipedia")
+                return True
+    except Exception as exc:
+        if _is_rate_limited(exc):
+            print(f"    [WARN] Wikipedia rate-limited — skipping to Wikimedia Commons")
+        else:
+            print(f"    [WARN] Wikipedia lookup failed: {exc}")
+
+    _time.sleep(1)  # be polite between Wikimedia API calls
+
+    # 2. Wikimedia Commons full-text search — events, locations, objects
+    try:
+        r = requests.get(
+            "https://commons.wikimedia.org/w/api.php",
+            params={
+                "action": "query",
+                "list": "search",
+                "srsearch": query,
+                "srnamespace": "6",
+                "srlimit": "5",
+                "format": "json",
+            },
+            headers=headers,
+            timeout=30,
+        )
+        r.raise_for_status()
+        for result in r.json().get("query", {}).get("search", []):
+            _time.sleep(0.5)
+            fr = requests.get(
+                "https://commons.wikimedia.org/w/api.php",
+                params={
+                    "action": "query",
+                    "titles": result["title"],
+                    "prop": "imageinfo",
+                    "iiprop": "url",
+                    "iiurlwidth": 1200,
+                    "format": "json",
+                },
+                headers=headers,
+                timeout=30,
+            )
+            fr.raise_for_status()
+            for fp in fr.json().get("query", {}).get("pages", {}).values():
+                info = (fp.get("imageinfo") or [{}])[0]
+                img_url = info.get("thumburl") or info.get("url")
+                if img_url and _save_if_valid(img_url):
+                    print(f"      source: Wikimedia Commons")
+                    return True
+    except Exception as exc:
+        if _is_rate_limited(exc):
+            print(f"    [WARN] Wikimedia Commons rate-limited — falling back to Pexels")
+        else:
+            print(f"    [WARN] Wikimedia Commons search failed: {exc}")
+
+    # 3. Pexels — last resort
+    try:
+        r = requests.get(
+            f"https://api.pexels.com/v1/search?query={query}&per_page=1",
+            headers={"Authorization": PEXELS_API_KEY},
+            timeout=30,
+        )
+        r.raise_for_status()
+        photos = r.json().get("photos", [])
+        if photos and _save_if_valid(photos[0]["src"]["large"]):
+            print(f"      source: Pexels")
+            return True
+    except Exception as exc:
+        print(f"    [WARN] Pexels fallback failed: {exc}")
+
+    return False
 
 
 def _fetch_stock(query: str, asset_type: str, out_dir: Path) -> None:
@@ -884,13 +1074,25 @@ def run_fetch_assets(step: dict, ws: Path, state: dict) -> None:
         out_dir  = ws / "assets" / f"scene_{scene_n}" / f"asset_{asset_n}"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        if atype == "ai_video":
+        if atype in ("ai_video", "ai_image"):
             prompt = a.get("ai_prompt", "").strip().strip('"')
             if not prompt or prompt.upper() == "N/A":
                 print(f"  [WARN] {label}: no AI prompt, skipping")
                 continue
             (out_dir / "generated.txt").write_text(prompt)
             print(f"  {label}: wrote generated.txt ({len(prompt)} chars)")
+
+        elif atype in ("real_image", "image"):
+            if atype == "real_image":
+                query = a.get("search_query", "").strip()
+            else:
+                variations = a.get("search_variations", "").strip()
+                query = variations.splitlines()[0].strip().lstrip("0123456789. ").strip("\"'")
+            if not query or query.upper() == "N/A":
+                print(f"  [WARN] {label}: no search query, skipping")
+                continue
+            (out_dir / "search_query.txt").write_text(query)
+            print(f"  {label}: wrote search_query.txt → '{query}'")
 
         elif atype == "map":
             spec = a.get("map_spec", "").strip()
@@ -900,14 +1102,13 @@ def run_fetch_assets(step: dict, ws: Path, state: dict) -> None:
             (out_dir / "map_spec.json").write_text(spec)
             print(f"  {label}: wrote map_spec.json")
 
-        elif atype in ("photo", "video"):
-            variations = a.get("search_variations", "").strip()
-            if not variations or variations.upper() == "N/A":
-                print(f"  [WARN] {label}: no search variations, skipping")
+        elif atype == "chart":
+            spec = a.get("chart_spec", "").strip()
+            if not spec or spec.upper() == "N/A":
+                print(f"  [WARN] {label}: no chart spec, skipping")
                 continue
-            query = variations.splitlines()[0].strip()
-            print(f"  {label}: fetching {atype} for '{query}'...")
-            _fetch_stock(query, atype, out_dir)
+            (out_dir / "chart_spec.json").write_text(spec)
+            print(f"  {label}: wrote chart_spec.json")
 
         else:
             print(f"  [WARN] {label}: unknown type '{atype}', skipping")
@@ -948,12 +1149,12 @@ def output_exists(step: dict, ws: Path) -> bool:
 # DISPATCH
 # ─────────────────────────────────────────────────────────────
 
-def dispatch(step: dict, ws: Path, state: dict) -> None:
+def dispatch(step: dict, ws: Path, state: dict, clean: bool = False) -> None:
     t = step["type"]
     if t == "gemini":
         run_gemini_step(step, ws, state)
     elif t == "imagen":
-        run_imagen_generation(step, ws, state)
+        run_imagen_generation(step, ws, state, clean)
     elif t == "animation_prompt":
         run_animation_prompt_step(step, ws, state)
     elif t == "runpod_animation":
@@ -970,7 +1171,7 @@ def dispatch(step: dict, ws: Path, state: dict) -> None:
         raise ValueError(f"Unknown step type: {t}")
 
 
-def execute_step(step: dict, ws: Path, state: dict, force: bool = False) -> bool:
+def execute_step(step: dict, ws: Path, state: dict, force: bool = False, clean: bool = False) -> bool:
     sid = step["id"]
 
     if not force and output_exists(step, ws):
@@ -982,7 +1183,7 @@ def execute_step(step: dict, ws: Path, state: dict, force: bool = False) -> bool
     print(f"{'─'*60}")
 
     try:
-        dispatch(step, ws, state)
+        dispatch(step, ws, state, clean)
 
         state["completed"] = list(dict.fromkeys([*state["completed"], sid]))
         state["failed"] = [x for x in state["failed"] if x != sid]
@@ -1025,46 +1226,71 @@ def show_status(ws: Path) -> None:
 
 def main():
     parser = argparse.ArgumentParser(description="Vid Life automated pipeline")
-    parser.add_argument("--step",   help="Run a single step by ID (e.g. 3 or 12b)")
-    parser.add_argument("--status", action="store_true", help="Show status of latest workspace")
+    parser.add_argument("--step",      help="Run a single step by ID (e.g. 3 or 12b)")
+    parser.add_argument("--status",    action="store_true", help="Show status of latest workspace")
+    parser.add_argument("--new",       action="store_true", help="Start a fresh workspace (do not resume latest)")
+    parser.add_argument("--workspace", help="Target a specific workspace by its time ID (e.g. 200619)")
     args = parser.parse_args()
 
     WORKSPACE_ROOT.mkdir(parents=True, exist_ok=True)
 
     if args.status:
+        if not args.workspace:
+            print("  --workspace <id> is required with --status. Example: --workspace 154257")
+            sys.exit(1)
         domain = select_domain()
         try:
-            show_status(latest_workspace(domain))
+            show_status(find_workspace(domain, args.workspace))
         except RuntimeError as e:
             print(f"  {e}")
         return
 
     if args.step:
-        domain = select_domain()
-        try:
-            ws = latest_workspace(domain)
-        except RuntimeError as e:
-            print(f"  {e}")
+        if not args.workspace and not args.new:
+            print("  --workspace <id> is required with --step. Example: --step 3 --workspace 154257")
+            print("  To start a fresh workspace use --new instead.")
             sys.exit(1)
-        state = load_state(ws)
+        domain = select_domain()
+        if args.new and not args.workspace:
+            # --new without --workspace: create a brand-new workspace
+            ws = new_workspace(domain)
+            state = {"completed": [], "failed": [], "domain": domain, "voice_id": DOMAIN_VOICE_MAP[domain]}
+            save_state(ws, state)
+        else:
+            # --workspace required here (enforced above)
+            try:
+                ws = find_workspace(domain, args.workspace)
+                state = load_state(ws)
+            except RuntimeError as e:
+                print(f"  {e}")
+                sys.exit(1)
         step = next((s for s in STEPS if s["id"] == args.step), None)
         if not step:
-            print(f"Unknown step: {args.step}. Valid IDs: {[s['id'] for s in STEPS]}")
+            print(f"  Unknown step: {args.step}. Valid IDs: {[s['id'] for s in STEPS]}")
             sys.exit(1)
-        execute_step(step, ws, state, force=True)
+        # Step 7: always run (per-asset check); --new cleans existing images first
+        # Other steps: skip if output exists unless --new
+        is_imagen = step["type"] == "imagen"
+        execute_step(step, ws, state, force=args.new or is_imagen, clean=args.new)
         return
 
-    # Full pipeline — resume latest workspace for domain or start fresh
+    # Full pipeline — start fresh with --new, otherwise resume latest workspace
     domain = select_domain()
-    try:
-        ws = latest_workspace(domain)
-        state = load_state(ws)
-        print(f"  Resuming workspace: {ws.relative_to(BASE_DIR)}\n")
-    except RuntimeError:
+    if args.new:
         ws = new_workspace(domain)
         state = {"completed": [], "failed": [], "domain": domain, "voice_id": DOMAIN_VOICE_MAP[domain]}
         save_state(ws, state)
-        print(f"  No previous workspace for '{domain}' — starting fresh.\n")
+        print(f"  Starting fresh workspace.\n")
+    else:
+        try:
+            ws = latest_workspace(domain)
+            state = load_state(ws)
+            print(f"  Resuming workspace: {ws.relative_to(BASE_DIR)}\n")
+        except RuntimeError:
+            ws = new_workspace(domain)
+            state = {"completed": [], "failed": [], "domain": domain, "voice_id": DOMAIN_VOICE_MAP[domain]}
+            save_state(ws, state)
+            print(f"  No previous workspace for '{domain}' — starting fresh.\n")
 
     print("  Starting pipeline...\n")
 

@@ -7,3 +7,6 @@ output/
 .env
 *.env
 .keys
+Comfy-Installs/
+*.png
+*.jpg
