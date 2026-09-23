@@ -1,0 +1,43 @@
+DOCUMENTARY NARRATION — THE HISTORY OF THE INTERNET
+
+In 1969, hidden inside a university lab, four computers were quietly connected for the first time. The world had no idea this modest experiment would one day link all of humanity.
+
+The first message ever sent across this network was supposed to be "LOGIN." The system crashed after just two letters. The internet began with the accidental word "LO."
+
+For years, the network grew in secret — a tool for scientists and the military. But it had a fatal flaw: dozens of separate networks that could not speak to each other.
+
+In 1974, Vint Cerf and Bob Kahn published a paper that changed everything. TCP/IP — a universal language for machines. Now any network could talk to any other.
+
+Still, the internet was invisible to ordinary people. That changed in 1989, when a quiet physicist at CERN in Geneva wrote a proposal for linking documents across the network.
+
+Tim Berners-Lee called his idea the World Wide Web. His manager wrote "vague but exciting" in the margins and approved it. Two years later, the web went live.
+
+Then came the browser. In 1993, Mosaic brought images to the web and sparked a frenzy. Millions of ordinary people logged on for the first time. The dot-com era had begun.
+
+Money flooded in. Fortunes were made and lost overnight. In 2000, the bubble burst — but from its wreckage rose something far more powerful: Google, Amazon, and eventually, social media.
+
+Today, five billion people are connected. The internet carries the world's commerce, its culture, its science, and its democracies. It has become the infrastructure of everything.
+
+It was built to survive catastrophe. It ended up becoming something those four 1969 computers could never have imagined: the closest thing humanity has ever built to a shared mind.
+
+=== ELEVENLABS VERSION ===
+
+In nineteen sixty-nine, hidden inside a university lab, four computers were quietly connected for the first time. The world had no idea this modest experiment would one day link all of humanity.
+
+The first message ever sent across this network was supposed to be login. The system crashed after just two letters. The internet began with the accidental word — lo.
+
+For years, the network grew in secret. A tool for scientists and the military. But it had a fatal flaw: dozens of separate networks that could not speak to each other.
+
+In nineteen seventy-four, Vint Cerf and Bob Kahn published a paper that changed everything. TCP IP — a universal language for machines. Now any network could talk to any other.
+
+Still, the internet was invisible to ordinary people. That changed in nineteen eighty-nine, when a quiet physicist at CERN in Geneva wrote a proposal for linking documents across the network.
+
+Tim Berners-Lee called his idea the World Wide Web. His manager wrote — vague but exciting — in the margins, and approved it. Two years later, the web went live.
+
+Then came the browser. In nineteen ninety-three, Mosaic brought images to the web and sparked a frenzy. Millions of ordinary people logged on for the first time. The dot-com era had begun.
+
+Money flooded in. Fortunes were made and lost overnight. In two thousand, the bubble burst. But from its wreckage rose something far more powerful — Google, Amazon, and eventually, social media.
+
+Today, five billion people are connected. The internet carries the world's commerce, its culture, its science, and its democracies. It has become the infrastructure of everything.
+
+It was built to survive catastrophe. It ended up becoming something those four nineteen sixty-nine computers could never have imagined — the closest thing humanity has ever built to a shared mind.

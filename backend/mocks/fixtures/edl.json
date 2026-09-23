@@ -1,0 +1,72 @@
+[
+  {
+    "scene_id": 1,
+    "clips": [
+      {
+        "path": "assets/scene_1/asset_1/animated.mp4",
+        "type": "video",
+        "duration_sec": 16,
+        "trim_start_sec": 0,
+        "effects": {}
+      }
+    ],
+    "text_overlays": [],
+    "sfx": []
+  },
+  {
+    "scene_id": 2,
+    "clips": [
+      {
+        "path": "assets/scene_2/asset_1/animated.mp4",
+        "type": "video",
+        "duration_sec": 16,
+        "trim_start_sec": 0,
+        "effects": {}
+      }
+    ],
+    "text_overlays": [],
+    "sfx": []
+  },
+  {
+    "scene_id": 3,
+    "clips": [
+      {
+        "path": "assets/scene_3/asset_1/animated.mp4",
+        "type": "video",
+        "duration_sec": 16,
+        "trim_start_sec": 0,
+        "effects": {}
+      }
+    ],
+    "text_overlays": [],
+    "sfx": []
+  },
+  {
+    "scene_id": 4,
+    "clips": [
+      {
+        "path": "assets/scene_4/asset_1/animated.mp4",
+        "type": "video",
+        "duration_sec": 16,
+        "trim_start_sec": 0,
+        "effects": {}
+      }
+    ],
+    "text_overlays": [],
+    "sfx": []
+  },
+  {
+    "scene_id": 5,
+    "clips": [
+      {
+        "path": "assets/scene_5/asset_1/animated.mp4",
+        "type": "video",
+        "duration_sec": 16,
+        "trim_start_sec": 0,
+        "effects": {}
+      }
+    ],
+    "text_overlays": [],
+    "sfx": []
+  }
+]
