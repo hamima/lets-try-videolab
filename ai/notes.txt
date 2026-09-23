@@ -1,0 +1,49 @@
+df -h
+
+# New empty volume
+sudo blkid /dev/vdc
+sudo mkfs.ext4 /dev/vdc
+
+sudo mount /dev/vdc /mnt/vidlab
+
+ curl -X POST http://69.19.137.224:8080/generate \
+  -F "mode=i2v" \
+  -F "prompt=The subject slowly turns toward the camera while the camera gently pushes forward" \
+  -F "image=@photo.jpeg" \
+  -F "duration_seconds=10" \
+  -F "seed=42"
+
+scp -i ~/.ssh/heyperstack_key \
+-r ~/Personal/VidLife/server/server_config.json \
+ubuntu@69.19.137.224:/mnt/vidlab
+
+
+## VLLM -> CUDA Version >= 13
+
+# System Python -> install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+chmod -R 777 ./ 
+
+# Create clean Python 3.12 env
+uv venv --python 3.12 --seed
+source .venv/bin/activate
+
+# Install matching vLLM
+uv pip install vllm==0.26.0 --torch-backend=auto
+
+# vLLM-Omni
+git clone https://github.com/vllm-project/vllm-omni.git
+cd vllm-omni
+uv pip install -e .
+
+
+
+
+vllm serve Wan-AI/Wan2.2-T2V-A14B-Diffusers \
+  --omni \
+  --host 0.0.0.0 \
+  --port 8091 \
+  --diffusion-attention-backend FLASH_ATTN \
+  --trust-remote-code \
+  --max-num-seqs 1
