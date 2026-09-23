@@ -1,0 +1,25 @@
+{
+  "i2v_model_id": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
+
+  "host": "0.0.0.0",
+  "port": 8080,
+
+  "idle_timeout_minutes": 30,
+
+  "output_dir": "/tmp/wan22_outputs",
+
+  "width": 1280,
+  "height": 720,
+
+  "num_frames": 81,
+  "fps": 16,
+
+  "num_inference_steps": 40,
+
+  "guidance_scale": 4.0,
+  "guidance_scale_2": 3.0,
+
+  "memory_mode": "cuda",
+
+  "negative_prompt": "overexposed, static, blurry, low quality, worst quality, text, subtitles, watermark"
+}
