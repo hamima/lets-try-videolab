@@ -13,6 +13,7 @@ import AssetPlanEditor from '@/components/viewers/AssetPlanEditor'
 import AssetFolderViewer from '@/components/viewers/AssetFolderViewer'
 import ImageSceneViewer from '@/components/viewers/ImageSceneViewer'
 import VideoSceneViewer from '@/components/viewers/VideoSceneViewer'
+import AnimationPromptViewer from '@/components/viewers/AnimationPromptViewer'
 import { cn } from '@/lib/utils'
 
 // ─── Domain colours (same as list page) ─────────────────────────────────────
@@ -157,6 +158,12 @@ function ContentPanel({
             ) : content.kind === 'image_list' ? (
               <ImageSceneViewer
                 images={content.images}
+                domain={domain}
+                runId={runId}
+              />
+            ) : content.kind === 'animation_list' ? (
+              <AnimationPromptViewer
+                items={content.items}
                 domain={domain}
                 runId={runId}
               />

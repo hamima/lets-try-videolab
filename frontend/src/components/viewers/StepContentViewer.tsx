@@ -32,19 +32,6 @@ export default function StepContentViewer({ content }: Props) {
     case 'image_list':
       return <ImageGridViewer images={content.images} />
 
-    case 'animation_list':
-      if (content.items.length === 0) return <p className="text-sm text-muted-foreground">No animation prompts yet.</p>
-      return (
-        <div className="space-y-4">
-          {content.items.map((item) => (
-            <div key={item.path} className="border rounded-lg p-4 space-y-1">
-              <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
-              <p className="text-sm leading-relaxed">{item.text}</p>
-            </div>
-          ))}
-        </div>
-      )
-
     case 'asset_list':
       if (content.files.length === 0) return <p className="text-sm text-muted-foreground">No asset files yet.</p>
       return (
@@ -66,6 +53,7 @@ export default function StepContentViewer({ content }: Props) {
     case 'asset_acquisition':
     case 'assets_viewer':
     case 'video_list':
+    case 'animation_list':
       return null
 
     default:

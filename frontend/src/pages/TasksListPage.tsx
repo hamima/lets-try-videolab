@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Film, Plus, RefreshCw } from 'lucide-react'
-import { listRuns, startRun, type RunSummary } from '@/api/tasks'
+import { Film, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { deleteRun, listRuns, startRun, type RunSummary } from '@/api/tasks'
 import { DOMAIN_DESCRIPTIONS } from '@/lib/domainDescriptions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -34,45 +34,99 @@ function runStatus(run: RunSummary): 'active' | 'done' | 'failed' | 'partial' {
   return 'partial'
 }
 
-function RunCard({ run, onClick }: { run: RunSummary; onClick: () => void }) {
+function RunCard({ run, onClick, onDelete }: { run: RunSummary; onClick: () => void; onDelete: () => void }) {
   const status = runStatus(run)
   const pct = Math.round((run.steps_completed / run.steps_total) * 100)
   const date = run.created_at ? new Date(run.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : run.run_id
 
   return (
-    <button
-      onClick={onClick}
-      className="w-full text-left rounded-xl border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-ring group"
-    >
-      <div className="flex items-start justify-between mb-3">
-        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${DOMAIN_COLORS[run.domain] ?? DOMAIN_COLORS.general}`}>
-          {run.domain.replace('_', ' ')}
-        </span>
-        {status === 'active' && (
-          <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Active
+    <div className="relative group">
+      <button
+        onClick={onClick}
+        className="w-full text-left rounded-xl border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-ring"
+      >
+        <div className="flex items-start justify-between mb-3 pr-7">
+          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${DOMAIN_COLORS[run.domain] ?? DOMAIN_COLORS.general}`}>
+            {run.domain.replace('_', ' ')}
           </span>
-        )}
-        {status === 'done' && <Badge variant="success">Done</Badge>}
-        {status === 'failed' && <Badge variant="destructive">Failed</Badge>}
-        {status === 'partial' && <Badge variant="secondary">Partial</Badge>}
-      </div>
+          {status === 'active' && (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Active
+            </span>
+          )}
+          {status === 'done' && <Badge variant="success">Done</Badge>}
+          {status === 'failed' && <Badge variant="destructive">Failed</Badge>}
+          {status === 'partial' && <Badge variant="secondary">Partial</Badge>}
+        </div>
 
-      <p className="text-xs text-muted-foreground mb-3">{date}</p>
+        <p className="text-xs text-muted-foreground mb-3">{date}</p>
 
-      <Progress value={pct} className="h-1.5 mb-2" />
+        <Progress value={pct} className="h-1.5 mb-2" />
 
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>{run.steps_completed}/{run.steps_total} steps{run.steps_failed > 0 ? ` · ${run.steps_failed} failed` : ''}</span>
-        {run.videos.length > 0 && (
-          <span className="flex items-center gap-1">
-            <Film className="w-3 h-3" />
-            {run.videos.length} video{run.videos.length !== 1 ? 's' : ''}
-          </span>
-        )}
-      </div>
-    </button>
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{run.steps_completed}/{run.steps_total} steps{run.steps_failed > 0 ? ` · ${run.steps_failed} failed` : ''}</span>
+          {run.videos.length > 0 && (
+            <span className="flex items-center gap-1">
+              <Film className="w-3 h-3" />
+              {run.videos.length} video{run.videos.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+      </button>
+
+      {status !== 'active' && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          title="Delete run"
+          className="absolute top-3 right-3 z-10 p-1.5 rounded-md text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ─── Delete confirmation modal ─────────────────────────────────────────────────
+
+function DeleteRunModal({ run, onClose, onDeleted }: { run: RunSummary | null; onClose: () => void; onDeleted: (run: RunSummary) => void }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleDelete() {
+    if (!run) return
+    setLoading(true)
+    setError(null)
+    try {
+      await deleteRun(run.domain, run.run_id)
+      onDeleted(run)
+      onClose()
+    } catch {
+      setError('Failed to delete run. It may still be active.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={!!run} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Delete run?</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          This permanently deletes the <span className="font-medium text-foreground">{run?.domain.replace('_', ' ')}</span> workspace and all its generated files. This cannot be undone.
+        </p>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button variant="destructive" onClick={handleDelete} disabled={loading}>
+            {loading ? 'Deleting…' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -163,6 +217,7 @@ export default function TasksListPage() {
   const [runs, setRuns] = useState<RunSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<RunSummary | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   async function fetchRuns() {
@@ -235,12 +290,18 @@ export default function TasksListPage() {
               key={`${run.domain}/${run.run_id}`}
               run={run}
               onClick={() => navigate(`/tasks/${run.domain}/${run.run_id}`)}
+              onDelete={() => setDeleteTarget(run)}
             />
           ))}
         </div>
       )}
 
       <NewRunModal open={showModal} onClose={() => setShowModal(false)} />
+      <DeleteRunModal
+        run={deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onDeleted={(deleted) => setRuns((prev) => prev.filter((r) => !(r.domain === deleted.domain && r.run_id === deleted.run_id)))}
+      />
     </div>
   )
 }

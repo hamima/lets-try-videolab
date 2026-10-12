@@ -100,7 +100,7 @@ export type StepContent =
   | { kind: 'audio'; url: string | null }
   | { kind: 'video'; url: string | null }
   | { kind: 'image_list'; images: { path: string; url: string; label: string; scene_id: string; asset_id: string; filename: string }[] }
-  | { kind: 'animation_list'; items: { path: string; text: string; label: string }[] }
+  | { kind: 'animation_list'; items: { path: string; text: string; label: string; scene_id: string; asset_id: string; image_url: string | null }[] }
   | {
       kind: 'video_list'
       videos: {
@@ -108,6 +108,7 @@ export type StepContent =
         asset_id: string
         label: string
         thumbnail_url: string | null
+        prompt: string
         video_url: string | null
         status: 'done' | 'pending'
       }[]

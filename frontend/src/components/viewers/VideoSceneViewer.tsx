@@ -8,6 +8,7 @@ interface VideoItem {
   asset_id: string
   label: string
   thumbnail_url: string | null
+  prompt: string
   video_url: string | null
   status: 'done' | 'pending'
 }
@@ -57,8 +58,8 @@ function AssetVideoCard({
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-md overflow-hidden border bg-muted aspect-video">
+      <div className="grid grid-cols-3 gap-2">
+        <div className="rounded-md overflow-hidden border bg-muted h-48">
           {item.thumbnail_url ? (
             <img src={item.thumbnail_url} alt={item.label} className="w-full h-full object-cover" />
           ) : (
@@ -67,7 +68,14 @@ function AssetVideoCard({
             </div>
           )}
         </div>
-        <div className="rounded-md overflow-hidden border bg-muted aspect-video flex items-center justify-center">
+        <div className="rounded-md border bg-muted/20 p-2 h-48 overflow-y-auto">
+          {item.prompt ? (
+            <p className="text-xs leading-relaxed whitespace-pre-wrap">{item.prompt}</p>
+          ) : (
+            <span className="text-xs text-muted-foreground">No prompt</span>
+          )}
+        </div>
+        <div className="rounded-md overflow-hidden border bg-muted h-48 flex items-center justify-center">
           {videoUrl ? (
             <video controls className="w-full h-full object-cover" src={videoUrl}>
               Your browser does not support the video element.
@@ -141,7 +149,7 @@ export default function VideoSceneViewer({ videos, domain, runId }: Props) {
             </button>
 
             {open && (
-              <div className="p-4 grid grid-cols-2 gap-4">
+              <div className="p-4 grid grid-cols-1 gap-4">
                 {assets.map(({ asset_id, item }) => (
                   <div key={asset_id}>
                     <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">

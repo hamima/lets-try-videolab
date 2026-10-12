@@ -1733,10 +1733,28 @@ def get_step_content(domain: str, run_id: str, step_id: str):
         if assets_dir.exists():
             for f in sorted(assets_dir.rglob("animated.txt")):
                 rel = str(f.relative_to(ws))
+                parts = f.parent.parts
+                scene_id = asset_id = ""
+                for p in parts:
+                    if p.startswith("scene_"):
+                        scene_id = p[len("scene_"):]
+                    elif p.startswith("asset_"):
+                        asset_id = p[len("asset_"):]
+
+                image_url = None
+                for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
+                    ip = f.parent / candidate
+                    if ip.exists():
+                        image_url = f"/tasks/files/{domain}/{run_id}/{ip.relative_to(ws)}"
+                        break
+
                 items.append({
                     "path": rel,
                     "text": f.read_text().strip(),
                     "label": str(f.parent.relative_to(assets_dir)),
+                    "scene_id": scene_id,
+                    "asset_id": asset_id,
+                    "image_url": image_url,
                 })
         return {"kind": kind, "items": items}
 
@@ -1773,6 +1791,7 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                     "asset_id": asset_id,
                     "label": str(asset_dir.relative_to(assets_dir)),
                     "thumbnail_url": thumbnail_url,
+                    "prompt": txt_file.read_text().strip(),
                     "video_url": video_url,
                     "status": "done" if video_url else "pending",
                 })
