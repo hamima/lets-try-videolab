@@ -151,7 +151,7 @@ STEPS = [
         "output": "assets/",
     },
     {
-        "id": "9", "name": "ComfyUI Animation", "type": "runpod_animation",
+        "id": "9", "name": "Video Animation", "type": "runpod_animation",
         "output": "assets/",
     },
     {

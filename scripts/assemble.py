@@ -19,6 +19,7 @@ Writes: output/final_video.mp4
 
 
 import json
+import os
 import re
 import sys
 import numpy as np
@@ -44,8 +45,12 @@ except ImportError:
 
 
 BASE_DIR = Path(__file__).parent.parent
-WORKSPACE = BASE_DIR / "workspace"
-ASSETS_DIR = BASE_DIR / "assets"
+# WORKSPACE_DIR is set by backend/tasks.py's _run_script() to the per-run workspace
+# (workspace/<domain>/<run_id>); fall back to the repo-root workspace/ for standalone use.
+WORKSPACE = Path(os.environ.get("WORKSPACE_DIR", BASE_DIR / "workspace"))
+ASSETS_DIR = WORKSPACE / "assets"
+# Final output is global (not per-run) — matches tasks.py's _output_exists() treatment
+# of "output/"-prefixed step outputs as BASE_DIR-relative.
 OUTPUT_DIR = BASE_DIR / "output"
 SFX_DIR = BASE_DIR / "sfx"
 FONTS_DIR = BASE_DIR / "fonts"
@@ -223,7 +228,7 @@ def build_single_clip(clip_data: dict, duration: float, scene_id: int):
        return clip.with_duration(duration)
 
 
-   asset_path = BASE_DIR / clip_path
+   asset_path = WORKSPACE / clip_path
 
 
    if not asset_path.exists():

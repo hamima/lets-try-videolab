@@ -23,13 +23,17 @@ Usage:
 
 
 import json
+import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).parent.parent
-WORKSPACE = BASE_DIR / "workspace"
+# WORKSPACE_DIR is set by backend/tasks.py's _run_script() to the per-run workspace
+# (workspace/<domain>/<run_id>); fall back to the repo-root workspace/ for standalone use.
+WORKSPACE = Path(os.environ.get("WORKSPACE_DIR", BASE_DIR / "workspace"))
 
 
 
@@ -225,7 +229,7 @@ def run():
 
    if not narration_path.exists():
        print(f"ERROR: {narration_path} not found")
-       return
+       sys.exit(1)
 
 
    print("Analyzing narration timing...")
@@ -253,7 +257,7 @@ def run():
 
    if scene_count == 0:
        print("ERROR: Cannot determine scene count")
-       return
+       sys.exit(1)
 
 
    # Assign timing to scenes

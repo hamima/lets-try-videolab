@@ -32,9 +32,6 @@ export default function StepContentViewer({ content }: Props) {
     case 'image_list':
       return <ImageGridViewer images={content.images} />
 
-    case 'video_list':
-      return <VideoPlayer videos={content.videos} />
-
     case 'animation_list':
       if (content.items.length === 0) return <p className="text-sm text-muted-foreground">No animation prompts yet.</p>
       return (
@@ -68,6 +65,7 @@ export default function StepContentViewer({ content }: Props) {
     case 'asset_manifest':
     case 'asset_acquisition':
     case 'assets_viewer':
+    case 'video_list':
       return null
 
     default:

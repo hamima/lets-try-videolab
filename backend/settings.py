@@ -25,6 +25,7 @@ SETTINGS_KEYS = [
     {"key": "OPENROUTER_API_KEY", "label": "OpenRouter API Key", "secret": True},
     {"key": "USE_OPENROUTER",     "label": "Use OpenRouter (alternative AI provider)", "secret": False, "type": "bool"},
     {"key": "MOCK_AI",            "label": "Mock AI (dev mode)", "secret": False, "type": "bool"},
+    {"key": "ENABLE_FULL_PIPELINE", "label": "Enable Full Pipeline Auto-Run", "secret": False, "type": "bool"},
 ]
 
 

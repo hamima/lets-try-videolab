@@ -1,0 +1,15 @@
+meta {
+  name: 09c - Video Download Content
+  type: http
+  seq: 9
+}
+
+# Default URL matches video.py's fallback construction when the poll response
+# doesn't include `unsigned_urls`. If it does, paste that URL in manually instead
+# (or extend 09-video-poll-status.bru's post-response script to capture it into
+# a `video_content_url` runtime var and reference that here).
+
+get {
+  url: {{base_url}}/videos/{{video_job_id}}/content?index=0
+  auth: inherit
+}

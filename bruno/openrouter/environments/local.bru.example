@@ -1,0 +1,19 @@
+vars {
+  base_url: https://openrouter.ai/api/v1
+  openrouter_api_key:
+  text_model: google/gemini-2.5-pro
+  image_model: google/gemini-3.1-flash-image
+  video_model: alibaba/wan-2.6
+  tts_model: google/gemini-3.1-flash-tts-preview
+  tts_voice: Kore
+  music_model: google/lyria-3-clip-preview
+  topic: <paste topic here>
+  language: <paste language here>
+  research_dossier: <paste research_dossier.md content here>
+  story_script: <paste story_script.md content here>
+  scene_plan: <paste scene_plan.md content here>
+  asset_manifest: <paste asset_manifest.md content here>
+  narration_only: <paste narration_only.md content here>
+  asset_inventory: <paste asset_inventory.txt content here>
+  narration_timing: <paste narration_timing.json content here>
+}

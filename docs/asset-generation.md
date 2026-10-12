@@ -189,13 +189,26 @@ This lets Step 9 access the burn key and duration without re-parsing `asset_mani
 
 ---
 
-## Step 9 — ComfyUI Animation (RunPod Pod)
+## Step 9 — Video Animation
 
-`run_runpod_animation()` sends each static asset to a **RunPod pod running ComfyUI** with the
-Wan 2.1 I2V 14B model to produce an `animated.mp4` video clip.
+Each static asset + its Step 8 `animated.txt` prompt is turned into an `animated.mp4` video clip.
+It animates the image directly — it does not use ComfyUI.
 
-**Config required**: set `COMFYUI_URL` in `.keys` to your pod's proxy URL (e.g.
-`https://{pod-id}-8188.proxy.runpod.net`). See `docs/runpod-setup.md` for pod setup.
+The per-file animation logic lives in a single shared helper, `_animate_single_asset(txt_file: Path) -> Path`,
+used by both the batch step runner and the per-asset endpoint described below. It supports three
+backends, selected by config:
+
+1. **Mock** (`MOCK_AI=true`) — writes a placeholder video, no API calls.
+2. **OpenRouter** (`USE_OPENROUTER=true`, the default/active path) — calls
+   `open_router/video.py`'s `generate_video()`, which submits the image + prompt to OpenRouter's
+   async Videos API, polls until completion, and downloads the result.
+3. **Self-hosted RunPod pod** (used when `USE_OPENROUTER=false` and `RUNPOD_URL` is set) — talks
+   directly to the standalone Wan2.2 I2V server in `server/` (see `docs/runpod-setup.md`) over its
+   `/generate`, `/status/{job_id}`, `/download/{job_id}` REST endpoints.
+
+`_animate_single_asset()` raises on failure (no static asset found, missing config, backend error)
+rather than swallowing errors — it's the caller's job to decide whether to continue past a failure
+or surface it.
 
 ### Scope
 
@@ -204,7 +217,7 @@ Only static assets are animated — `video.mp4` files (Pexels stock downloads) a
 ### Burn key → motion prefix
 
 The `ken_burns` value from `asset_meta.json` is mapped to a short motion prefix prepended to the
-Wan 2.1 prompt:
+animation prompt:
 
 | `ken_burns` | Motion prefix |
 |---|---|
@@ -213,38 +226,67 @@ Wan 2.1 prompt:
 | `pan_left` | `camera pan left,` |
 | `pan_right` | `camera pan right,` |
 
-### Duration → frame count
+### Duration
 
-`duration` (e.g. `"10 seconds"`) is parsed to an integer second count and multiplied by 24 fps
-to get the frame count passed to the ComfyUI workflow (minimum 16 frames).
+`duration` (e.g. `"10 seconds"`) is parsed to an integer second count and passed to the backend
+as the target clip length.
 
-### `run_runpod_animation(ws)` — ComfyUI API flow
+### Batch run — `_run_runpod_animation(step, ws, state)`
 
-1. Guard: if `COMFYUI_URL` is empty, warn and return
-2. Load `wan_i2v_workflow.json` from the repo root as a string template
-3. For each `animated.txt`:
+This is what runs when step 9 is executed as a whole (e.g. via
+`POST /tasks/runs/{domain}/{run_id}/steps/9`, or the full pipeline when
+`ENABLE_FULL_PIPELINE=true`):
+
+1. For each `animated.txt` under `{workspace}/assets/`:
    - Skip if sibling `animated.mp4` already exists (resumable)
-   - Find static asset: `image.png` > `map.png` > `chart.png`
-   - Read `asset_meta.json` → `ken_burns` + `duration`
-   - Build final prompt: `{motion_prefix} {animated.txt content}`
-   - Compute frame count: `int(seconds) × 24`
-   - **Upload image**: `POST {COMFYUI_URL}/upload/image` (multipart) → get `filename`
-   - **Substitute placeholders** in workflow template: `__IMAGE_FILENAME__`, `__PROMPT__`, `__FRAME_COUNT__`
-   - **Submit**: `POST {COMFYUI_URL}/prompt` → get `prompt_id`
-   - **Poll**: `GET {COMFYUI_URL}/history/{prompt_id}` every 5s, up to 120 attempts (10 min)
-   - **Download**: `GET {COMFYUI_URL}/view?filename=...&type=output` → write `animated.mp4`
-   - On failure/timeout: log warning, continue to next asset
+   - Call `_animate_single_asset(txt_file)`
+   - On any exception, log/continue to the next asset (best-effort batch semantics)
 
-### Workflow template — `wan_i2v_workflow.json`
+The step's completion check uses `"output_marker": "animated.mp4"` in its `STEPS` entry, so
+`_output_exists()` correctly reports the step as done once every asset has a video rather than
+just checking that the `assets/` directory exists.
 
-ComfyUI API-format workflow with three string placeholders:
+### Per-asset animate — `POST /tasks/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/animate`
 
-| Placeholder | Replaced with |
-|---|---|
-| `__IMAGE_FILENAME__` | Filename returned by `/upload/image` |
-| `__PROMPT__` | JSON-escaped motion prefix + animation description |
-| `__FRAME_COUNT__` | Integer frame count (duration × 24) |
+The frontend no longer exposes a batch "Run"/"Rerun" button for step 9. Instead, each asset gets
+its own **Animate** (or **Re-animate**) button, backed by this synchronous endpoint (mirrors the
+`regenerate_asset_image` endpoint used for step 7):
+
+1. Resolve `{workspace}/assets/scene_{scene_id}/asset_{asset_id}/`
+2. Require an `animated.txt` prompt file to exist (400 if missing)
+3. If `animated.mp4` already exists, delete it — re-animation is always unconditional, there's no
+   "skip if exists" behavior on this path
+4. Call `_animate_single_asset(txt_file)` directly; a raised exception becomes a `422` response
+5. Return `{"url": "/tasks/files/{domain}/{run_id}/assets/scene_X/asset_Y/animated.mp4"}`
+
+See `docs/tasks-api.md` for the full request/response/error reference.
 
 ### Output
 
 `animated.mp4` in the same folder as the static asset, e.g. `assets/scene_1/asset_1/animated.mp4`.
+
+### Step content — `video_list`
+
+`GET /tasks/runs/{domain}/{run_id}/steps/9/content` returns `{"kind": "video_list", "videos": [...]}`,
+built by scanning `{workspace}/assets/` for every `animated.txt` file (i.e. one entry per animatable
+asset, not just ones that already have a video). Each entry:
+
+```json
+{
+  "scene_id": "1",
+  "asset_id": "1",
+  "label": "scene_1/asset_1",
+  "thumbnail_url": "/tasks/files/political/2026-08-20_143022/assets/scene_1/asset_1/image.png",
+  "video_url": "/tasks/files/political/2026-08-20_143022/assets/scene_1/asset_1/animated.mp4",
+  "status": "done"
+}
+```
+
+- `thumbnail_url` is the first match of `image.png` > `image.jpg` > `map.png` > `chart.png` found in
+  the asset folder, or `null` if none exists.
+- `video_url` is set (and `status` is `"done"`) only if `animated.mp4` exists; otherwise `video_url`
+  is `null` and `status` is `"pending"`.
+
+The frontend's `VideoSceneViewer.tsx` groups this flat list by `scene_id` → `asset_id` (same
+accordion pattern as `ImageSceneViewer.tsx` for step 7) and renders the thumbnail and video
+side-by-side per asset, with the per-asset Animate/Re-animate button described above.

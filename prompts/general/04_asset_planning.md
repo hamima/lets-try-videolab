@@ -105,6 +105,7 @@ NEVER use stock for:
 
 
 OUTPUT FORMAT:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 
 For each scene, return:

@@ -1,0 +1,27 @@
+meta {
+  name: 02 - Story Script
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/chat/completions
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{text_model}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "You are an Emmy-winning documentary writer.\n\n\nINPUT:\n\n\n{{research_dossier}}\n\n\nCreate a 3-minute documentary script.\n\n\nRules:\n\n\n- Every sentence must create curiosity.\n- Never sound like AI.\n- Never sound like a news article.\n- Use simple language.\n- Maintain suspense throughout.\n- Reveal information gradually.\n- Focus on human impact.\n- Present multiple viewpoints fairly.\n- End with a thought-provoking conclusion.\n\n\nUse this structure:\n\n\n0-20 sec:\nHook\n\n\n20-60 sec:\nContext\n\n\n60-120 sec:\nConflict\n\n\n120-150 sec:\nHidden motivations\n\n\n150-180 sec:\nConsequences and ending\n\n\nReturn output in EXACT format:\n\n\nVIDEO TITLE\n\n\nTHUMBNAIL TEXT\n\n\nOPENING HOOK\n\n\nFULL NARRATION SCRIPT\n\n\nKEY TAKEAWAYS\n\n\nEMOTIONAL ARC\n\n\nVIEWER RETENTION MOMENTS\n\n\nFACT CHECK FLAGS\n"
+      }
+    ]
+  }
+}

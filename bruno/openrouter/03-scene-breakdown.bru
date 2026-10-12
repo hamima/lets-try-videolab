@@ -1,0 +1,27 @@
+meta {
+  name: 03 - Scene Breakdown
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/chat/completions
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{text_model}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "You are a documentary producer.\n\n\nINPUT:\n\n\n{{story_script}}\n\n\nBreak the script into scenes.\n\n\nFor every sentence identify:\n\n\n- Scene number\n- Narration\n- Visual objective\n- Emotional tone\n- Duration\n\n\nReturn output in EXACT format:\n\n\nSCENE 1\n\n\nNarration:\n...\n\n\nDuration:\n...\n\n\nPurpose:\n...\n\n\nEmotion:\n...\n\n\n---\n\n\nSCENE 2\n\n\nNarration:\n...\n\n\nDuration:\n...\n\n\nPurpose:\n...\n\n\nEmotion:\n...\n\n\n---\n\n\n(continue for all scenes)\n"
+      }
+    ]
+  }
+}

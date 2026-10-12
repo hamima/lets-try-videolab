@@ -1,0 +1,27 @@
+meta {
+  name: 01 - Research
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/chat/completions
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{text_model}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "You are a senior investigative journalist working for a top documentary channel.\n\n\nTOPIC: {{topic}}\nLANGUAGE: {{language}}\n\n\nYour task is to research the above topic and produce a comprehensive research dossier that can become a highly engaging 3-minute YouTube documentary. The final video will be narrated in {{language}}, so frame all angles, hooks, and narrative structures for a {{language}}-speaking audience.\n\n\nSelection criteria:\n\n\n- High public interest\n- Significant economic impact\n- Strong conflict between stakeholders\n- Hidden motivations or incentives\n- Multiple perspectives\n- Clear consequences for ordinary people\n- Suitable for a curiosity-driven narrative\n\n\nReturn output in EXACT format:\n\n\nTOPIC\n\n\nOne-line summary\n\n\nVIRALITY SCORE\n(1-10)\n\n\nWHY THIS STORY MATTERS\n\n\nKEY STAKEHOLDERS\n\n\nTIMELINE OF EVENTS\n\n\nMAIN FACTS\n\n\nSUPPORTING FACTS\n\n\nCONTROVERSIES\n\n\nPUBLIC REACTION\n\n\nARGUMENTS FOR\n\n\nARGUMENTS AGAINST\n\n\nHIDDEN INCENTIVES\n\n\nUNANSWERED QUESTIONS\n\n\nPOTENTIAL VIDEO TITLES (10)\n\n\nMOST COMPELLING NARRATIVE ANGLE\n\n\nDOCUMENTARY HOOK\n\n\nFACT CHECK NOTES\n\n\nSOURCES\n"
+      }
+    ]
+  }
+}

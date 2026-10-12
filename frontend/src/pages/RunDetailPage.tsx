@@ -12,6 +12,7 @@ import ScenePlanEditor from '@/components/viewers/ScenePlanEditor'
 import AssetPlanEditor from '@/components/viewers/AssetPlanEditor'
 import AssetFolderViewer from '@/components/viewers/AssetFolderViewer'
 import ImageSceneViewer from '@/components/viewers/ImageSceneViewer'
+import VideoSceneViewer from '@/components/viewers/VideoSceneViewer'
 import { cn } from '@/lib/utils'
 
 // ─── Domain colours (same as list page) ─────────────────────────────────────
@@ -49,11 +50,13 @@ function ContentPanel({
   step,
   domain,
   runId,
+  reloadKey,
   onRerun,
 }: {
   step: StepDetail | null
   domain: string
   runId: string
+  reloadKey: number
   onRerun: () => void
 }) {
   const [content, setContent] = useState<StepContent | null>(null)
@@ -68,7 +71,7 @@ function ContentPanel({
       .then(setContent)
       .catch(() => setContent(null))
       .finally(() => setLoading(false))
-  }, [step?.id, step?.status, domain, runId])
+  }, [step?.id, step?.status, domain, runId, reloadKey])
 
   if (!step) {
     return (
@@ -92,10 +95,12 @@ function ContentPanel({
           {step.status === 'failed'  && <Badge variant="destructive">Failed</Badge>}
           {step.status === 'pending' && <Badge variant="outline">Pending</Badge>}
         </div>
-        <Button size="sm" variant="outline" onClick={onRerun} className="gap-1.5">
-          <RotateCcw className="w-3.5 h-3.5" />
-          Rerun
-        </Button>
+        {step.type !== 'runpod_animation' && (
+          <Button size="sm" variant="outline" onClick={onRerun} className="gap-1.5">
+            <RotateCcw className="w-3.5 h-3.5" />
+            Rerun
+          </Button>
+        )}
       </div>
 
       {/* Content */}
@@ -111,17 +116,21 @@ function ContentPanel({
           ) : step.status === 'pending' ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground text-sm">This step hasn't run yet.</p>
-              <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
-                <RotateCcw className="w-3.5 h-3.5" /> Run now
-              </Button>
+              {step.type !== 'runpod_animation' && (
+                <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
+                  <RotateCcw className="w-3.5 h-3.5" /> Run now
+                </Button>
+              )}
             </div>
           ) : step.status === 'failed' ? (
             <div className="text-center py-12">
               <p className="text-destructive text-sm font-medium">Step failed</p>
               <p className="text-muted-foreground text-xs mt-1">Check server logs for details.</p>
-              <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
-                <RotateCcw className="w-3.5 h-3.5" /> Retry
-              </Button>
+              {step.type !== 'runpod_animation' && (
+                <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
+                  <RotateCcw className="w-3.5 h-3.5" /> Retry
+                </Button>
+              )}
             </div>
           ) : content ? (
             content.kind === 'research' || content.kind === 'story' ? (
@@ -151,6 +160,12 @@ function ContentPanel({
                 domain={domain}
                 runId={runId}
               />
+            ) : content.kind === 'video_list' ? (
+              <VideoSceneViewer
+                videos={content.videos}
+                domain={domain}
+                runId={runId}
+              />
             ) : (
               <StepContentViewer content={content} />
             )
@@ -173,6 +188,7 @@ export default function RunDetailPage() {
   const [loading, setLoading] = useState(true)
   const [selectedStep, setSelectedStep] = useState<StepDetail | null>(null)
   const [_rerunning, setRerunning] = useState(false)
+  const [contentReloadKey, setContentReloadKey] = useState(0)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const prevActiveStepRef = useRef<string | null>(null)
 
@@ -227,7 +243,8 @@ export default function RunDetailPage() {
     setRerunning(true)
     try {
       await runStep(domain, runId, step.id, true)
-      setTimeout(fetchStatus, 500)
+      await fetchStatus()
+      setContentReloadKey((k) => k + 1)
     } finally {
       setRerunning(false)
     }
@@ -324,6 +341,7 @@ export default function RunDetailPage() {
               step={selectedStep}
               domain={domain}
               runId={runId}
+              reloadKey={contentReloadKey}
               onRerun={() => selectedStep && handleRerun(selectedStep)}
             />
           </div>

@@ -13,6 +13,7 @@ Selection criteria:
 - Suitable for a curiosity-driven, mind-expanding narrative
 
 Return output in EXACT format:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 TOPIC
 

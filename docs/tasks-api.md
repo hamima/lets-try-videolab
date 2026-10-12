@@ -25,7 +25,7 @@ All task endpoints are mounted at `/tasks`.
 | `6` | Fetch Assets | fetch_assets |
 | `7` | AI Image Generation | imagen |
 | `8` | Animation Prompt | animation_prompt |
-| `9` | ComfyUI Animation | runpod_animation |
+| `9` | Video Animation | runpod_animation |
 | `10` | Narration Script | gemini |
 | `11` | Narration Audio | tts |
 | `12` | Music Prompt | gemini |
@@ -40,16 +40,22 @@ All task endpoints are mounted at `/tasks`.
 
 ## `POST /tasks/runs`
 
-Start a full pipeline run for a domain. Resumes the latest workspace by default; pass `fresh: true` to start from scratch.
+Create or resume a workspace for a domain. Resumes the latest workspace by default; pass `fresh: true` to start from scratch.
 
-The run executes in the background — use `GET /tasks/runs/{domain}/{run_id}` to poll status.
+**Full pipeline auto-run is gated behind the `ENABLE_FULL_PIPELINE` config flag (default `false`).** When the flag is off:
+
+- A plain `fresh`/resume request (`preview_only` not set) just creates/resumes the workspace and returns immediately — **no background run is dispatched**. Use `POST /tasks/runs/{domain}/{run_id}/steps/{step_id}` to run each of the 18 steps individually.
+- A fresh-start **preview** request (`fresh: true` **and** `preview_only: true`) still runs — this is the only path that auto-executes in the background regardless of the flag. It runs step 1 only, then stops and waits for approval (see "Preview flow" below).
+
+When `ENABLE_FULL_PIPELINE=true`, non-preview requests behave as before: the full 18-step pipeline is dispatched in a background thread immediately.
 
 ### Request body
 
 ```json
 {
   "domain": "political",
-  "fresh": false
+  "fresh": false,
+  "preview_only": false
 }
 ```
 
@@ -57,8 +63,9 @@ The run executes in the background — use `GET /tasks/runs/{domain}/{run_id}` t
 |---|---|---|---|
 | `domain` | string | yes | One of the supported domains |
 | `fresh` | boolean | no (default `false`) | `true` = create new workspace; `false` = resume latest |
+| `preview_only` | boolean | no (default `false`) | `true` (with `fresh: true`) = run step 1 only and wait for approval, ignoring `ENABLE_FULL_PIPELINE` |
 
-### Response `200`
+### Response `200` — `ENABLE_FULL_PIPELINE=false`, non-preview request
 
 ```json
 {
@@ -66,6 +73,33 @@ The run executes in the background — use `GET /tasks/runs/{domain}/{run_id}` t
   "domain": "political",
   "workspace": "workspace/political/2026-08-20_143022",
   "fresh": false,
+  "preview_only": false,
+  "message": "Workspace ready — run steps individually"
+}
+```
+
+### Response `200` — preview request (`fresh: true`, `preview_only: true`)
+
+```json
+{
+  "run_id": "2026-08-20_143022",
+  "domain": "political",
+  "workspace": "workspace/political/2026-08-20_143022",
+  "fresh": true,
+  "preview_only": true,
+  "message": "Preview started — awaiting approval after step 1"
+}
+```
+
+### Response `200` — `ENABLE_FULL_PIPELINE=true`, non-preview request
+
+```json
+{
+  "run_id": "2026-08-20_143022",
+  "domain": "political",
+  "workspace": "workspace/political/2026-08-20_143022",
+  "fresh": false,
+  "preview_only": false,
   "message": "Full run started"
 }
 ```
@@ -76,6 +110,32 @@ The run executes in the background — use `GET /tasks/runs/{domain}/{run_id}` t
 curl -X POST http://localhost:8080/tasks/runs \
   -H "Content-Type: application/json" \
   -d '{"domain": "political", "fresh": false}'
+```
+
+---
+
+## `POST /tasks/runs/{domain}/{run_id}/continue`
+
+Resume the full pipeline after a preview approval — runs all remaining steps in the background.
+
+**Gated behind `ENABLE_FULL_PIPELINE`** (default `false`). When the flag is off, this endpoint always returns `409`. The endpoint is kept functional (not removed) for future re-enablement; when the flag is on, behavior is unchanged from before — it dispatches `_run_full_pipeline` in a background thread.
+
+### Response `200` (flag on)
+
+```json
+{ "run_id": "2026-08-20_143022", "domain": "political", "message": "Pipeline resumed" }
+```
+
+### Response `409` (flag off, the default)
+
+```json
+{ "detail": "Full pipeline run is disabled" }
+```
+
+### Example
+
+```bash
+curl -X POST http://localhost:8080/tasks/runs/political/2026-08-20_143022/continue
 ```
 
 ---
@@ -134,6 +194,47 @@ curl -X POST \
   http://localhost:8080/tasks/runs/political/2026-08-20_143022/steps/7 \
   -H "Content-Type: application/json" \
   -d '{"force": true}'
+```
+
+---
+
+## `POST /tasks/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/animate`
+
+Animate (or re-animate) a single Step 9 asset, synchronously. This is the per-asset counterpart to
+the batch step 9 run — the frontend's "Animate" / "Re-animate" button calls this endpoint directly
+instead of rerunning the whole step.
+
+If `animated.mp4` already exists for the asset it is deleted first, then regenerated unconditionally
+(there's no "skip if exists" behavior here, unlike the batch step run).
+
+### Path parameters
+
+| Parameter | Description |
+|---|---|
+| `domain` | Domain of the workspace |
+| `run_id` | Workspace folder name |
+| `scene_id` | Scene number (e.g. `1`), matches the `assets/scene_{scene_id}/` folder |
+| `asset_id` | Asset number within the scene (e.g. `1`), matches `asset_{asset_id}/` |
+
+### Response `200`
+
+```json
+{ "url": "/tasks/files/political/2026-08-20_143022/assets/scene_1/asset_1/animated.mp4" }
+```
+
+### Errors
+
+| Status | When |
+|---|---|
+| `400` | Unknown domain, or no `animated.txt` prompt file found for this asset |
+| `404` | Workspace or asset directory not found |
+| `422` | Animation generation failed (backend/API error) |
+
+### Example
+
+```bash
+curl -X POST \
+  http://localhost:8080/tasks/runs/political/2026-08-20_143022/assets/1/1/animate
 ```
 
 ---
@@ -231,7 +332,8 @@ curl "http://localhost:8080/tasks/runs?domain=political"
 |---|---|
 | `400` | Invalid domain or step ID |
 | `404` | Workspace or run_id not found |
-| `409` | A run is already active for this workspace |
+| `409` | A run is already active for this workspace, or `/continue` was called while `ENABLE_FULL_PIPELINE=false` |
+| `422` | Per-asset animation request failed (see `/assets/{scene_id}/{asset_id}/animate`) |
 
 ```json
 { "detail": "No workspace found for run_id '2026-08-20_143022' in domain 'political'" }
@@ -249,3 +351,14 @@ curl "http://localhost:8080/tasks/runs?domain=political"
 | `RUNPOD_URL` | Step 9 (animation server) |
 
 Set these via `source .keys` before starting the backend.
+
+---
+
+## Settings flags
+
+In addition to environment variables, some behavior is controlled via `settings.json`
+(`backend/settings.py`'s `SETTINGS_KEYS`), editable through the settings UI/API:
+
+| Key | Type | Default | Effect |
+|---|---|---|---|
+| `ENABLE_FULL_PIPELINE` | bool | `false` | When `false`, `POST /tasks/runs` no longer auto-dispatches the full 18-step background run, and `POST /tasks/runs/{domain}/{run_id}/continue` returns `409`. Steps must be run individually via `POST /tasks/runs/{domain}/{run_id}/steps/{step_id}`. The fresh-start preview flow (step 1 only) is unaffected by this flag. Set to `true` to restore the old auto-run-everything behavior. |

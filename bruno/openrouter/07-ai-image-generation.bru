@@ -1,0 +1,22 @@
+meta {
+  name: 07 - AI Image Generation
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/images
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{image_model}}",
+    "prompt": "A massive steel bank vault door, slightly ajar, golden light spilling through the gap into a dark concrete corridor, cinematic documentary photography, dramatic side lighting, shallow depth of field, hyper-detailed metal texture, 8k, photorealistic, consistent visual style: cold blue-grey color grade, high contrast, film grain"
+  }
+}

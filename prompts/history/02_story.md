@@ -34,6 +34,7 @@ What we got wrong — how history remembers it versus what really happened
 Why it still matters — the modern consequence or lesson
 
 Return output in EXACT format:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 VIDEO TITLE
 

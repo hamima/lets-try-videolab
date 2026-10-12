@@ -34,6 +34,7 @@ Why it was hidden or overlooked
 What it means — a new way to see the world
 
 Return output in EXACT format:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 VIDEO TITLE
 

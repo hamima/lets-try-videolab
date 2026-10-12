@@ -1,0 +1,27 @@
+meta {
+  name: 10 - Narration Script
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{base_url}}/chat/completions
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{text_model}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "You are a professional documentary voice director specializing in ElevenLabs text-to-speech optimization.\n\n\nINPUT:\n{{narration_only}}\n\n\n(This is the narration-only text extracted from story_script.md — just the spoken paragraphs, no headers, timestamps, or metadata.)\n\n\nTASK:\nConvert the story script into a production-ready narration optimized for ElevenLabs TTS synthesis. Output ONLY the final text to be pasted directly into ElevenLabs — no headers, no comments, no scene labels, no metadata.\n\n\nCRITICAL RULES:\n- DO NOT rewrite meaning or add new content.\n- DO NOT merge or split scenes. Each scene maps 1:1 with the input.\n- Preserve the exact narrative arc and scene structure.\n- All numbers must be spelled out (e.g., \"seventeen billion\" not \"17 billion\").\n- All years must be spelled out (e.g., \"twenty twenty-six\" not \"2026\").\n- No abbreviations (e.g., \"European Union\" not \"EU\").\n\n\nELEVENLABS-SPECIFIC FORMATTING:\n\n\n1. PAUSES (use literal text cues ElevenLabs responds to):\n  - Short pause (0.5s): end sentence with a period, then start a new line.\n  - Medium pause (1–1.5s): insert \"...\" at end of sentence.\n  - Long pause (2s+): insert <break time=\"1.5s\"/> on its own line between sentences.\n  - Scene transitions: insert <break time=\"2.0s\"/> between scenes.\n\n\n2. EMPHASIS (use punctuation and phrasing ElevenLabs interprets naturally):\n  - For strong stress: wrap in quotes or use an em-dash before the word.\n  - For dramatic weight: place the key phrase as a standalone short sentence.\n  - Do NOT use custom tags like [EMPHASIZE]. ElevenLabs ignores them.\n\n\n3. PACING CONTROL:\n  - Maximum 15 words per sentence for dramatic moments.\n  - Maximum 22 words per sentence for expository content.\n  - One sentence per line.\n\n\nOUTPUT FORMAT:\n\n\nOutput ONLY the spoken narration text — ready to paste directly into ElevenLabs.\nNo scene headers, no comments, no labels, no markdown, no metadata.\nScenes are separated only by <break time=\"2.0s\"/> tags.\n\n\n---\n\n\nEXAMPLE OUTPUT:\n\n\nImagine a vault holding seventeen billion euros.\n<break time=\"1.5s\"/>\nBut the key... is buried under a mountain of paperwork that's about to catch fire.\n<break time=\"2.0s\"/>\nIn Budapest, the clock isn't just ticking — it's screaming.\n\n\n---\n\n\nQUALITY CHECKLIST (apply before outputting):\n- [ ] Every number and year is spelled out\n- [ ] No sentence exceeds 22 words\n- [ ] Dramatic beats are isolated as short standalone sentences\n- [ ] Pauses use only: line breaks, \"...\", or <break time=\"Xs\"/>\n- [ ] No invented content — all meaning preserved from input\n- [ ] Scene count matches input exactly\n- [ ] No custom tags that ElevenLabs cannot interpret\n- [ ] Output contains ZERO scene headers, comments, or labels\n"
+      }
+    ]
+  }
+}

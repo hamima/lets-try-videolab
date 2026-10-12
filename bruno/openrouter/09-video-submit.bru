@@ -1,0 +1,37 @@
+meta {
+  name: 09a - Video Submit
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{base_url}}/videos
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{video_model}}",
+    "prompt": "Over five seconds, the camera slowly pushes in on a massive steel vault door standing slightly ajar in a dark concrete corridor, golden light spilling through the gap and growing brighter as the lens approaches, dust particles drifting through the beam, tense and cinematic documentary mood.",
+    "duration": 5,
+    "frame_images": [
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAEElEQVR42mOIslkARwzEcQDzoxNhkWFDqAAAAABJRU5ErkJggg=="
+        },
+        "frame_type": "first_frame"
+      }
+    ]
+  }
+}
+
+script:post-response {
+  bru.setVar("video_job_id", res.body.id);
+  bru.setVar("video_polling_url", res.body.polling_url);
+}

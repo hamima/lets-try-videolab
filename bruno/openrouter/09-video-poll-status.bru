@@ -1,0 +1,14 @@
+meta {
+  name: 09b - Video Poll Status
+  type: http
+  seq: 8
+}
+
+# Mirrors client.get(polling_url, api_key, absolute=True, timeout=30) in video.py.
+# Send this request repeatedly (Bruno has no built-in polling loop) until the
+# response's `status` field is one of: completed, failed, cancelled, expired.
+
+get {
+  url: {{video_polling_url}}
+  auth: inherit
+}

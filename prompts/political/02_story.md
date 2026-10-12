@@ -36,6 +36,7 @@ Hidden motivations
 Consequences and ending
 
 Return output in EXACT format:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 VIDEO TITLE
 

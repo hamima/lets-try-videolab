@@ -34,6 +34,7 @@ What was really at stake — beyond the sport
 The aftermath — what it cost, what it meant, what it changed
 
 Return output in EXACT format:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 VIDEO TITLE
 

@@ -1,0 +1,36 @@
+meta {
+  name: 13 - Music Audio
+  type: http
+  seq: 13
+}
+
+# NOTE: This is an SSE/streaming response (mirrors backend/open_router/music.py's
+# handling). Bruno will display raw `data: {...}` chunks ending in
+# `data: [DONE]`, rather than a single JSON body. That is expected, not an error.
+
+post {
+  url: {{base_url}}/chat/completions
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{music_model}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "A cinematic documentary score in the style of Hans Zimmer. Instrumental only, no vocals. Opens with a low, ominous bass drone and isolated piano notes echoing into silence, creating immediate unease. A ticking percussion pattern enters, building anxiety. The piece gradually layers in heavy, oppressive strings as the tension deepens. Midway through, the mood shifts — a solo cello introduces a somber melody before giving way to cautiously hopeful rising violins. The energy then surges into a driving, urgent section with rapid staccato strings and punching brass accents at full intensity. By the final moments, the music pulls back into a sparse, reflective space — a single mournful violin over cold synth pads, fading slowly into silence on a lingering piano note. The emotional arc moves from suspense through conflict to quiet, unresolved contemplation."
+      }
+    ],
+    "modalities": ["text", "audio"],
+    "audio": {
+      "format": "mp3"
+    },
+    "stream": true
+  }
+}

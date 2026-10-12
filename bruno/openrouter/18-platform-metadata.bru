@@ -1,0 +1,27 @@
+meta {
+  name: 18 - Platform Metadata
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{base_url}}/chat/completions
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{text_model}}",
+    "messages": [
+      {
+        "role": "user",
+        "content": "You are a YouTube SEO specialist and content strategist for educational explainer content. Your goal is to maximise watch time and discoverability for curiosity-driven, fact-based videos.\n\nINPUT (story script):\n\n{{story_script}}\n\nGenerate YouTube publishing metadata optimised for general knowledge and education audiences.\n\nRules:\n- Title: max 100 characters, curiosity-driven (\"Why...\", \"How...\", \"The Truth About...\"), no ALL CAPS spam\n- Description: 200–300 words total. First 2 sentences must hook the viewer (they appear in search previews). Include a \"What you'll learn:\" bullet section. End with a call to action (like + subscribe). Add a placeholder line \"⏱ TIMESTAMPS\" where chapter markers will go.\n- Hashtags: 5–8 tags, mix of broad educational (#Education, #Learning, #Facts) and topic-specific\n- Tags: 10–15 SEO keyword phrases (no # prefix), mix of broad and long-tail\n\nReturn ONLY valid JSON — no markdown fences, no extra text:\n\n{\n  \"youtube\": {\n    \"title\": \"...\",\n    \"description\": \"...\",\n    \"hashtags\": [\"#...\", \"...\"],\n    \"tags\": [\"...\", \"...\"]\n  }\n}\n"
+      }
+    ]
+  }
+}

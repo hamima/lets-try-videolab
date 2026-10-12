@@ -34,6 +34,7 @@ Hidden motivations — what the boardroom didn't want you to know
 Fallout — consequences for workers, consumers, and markets
 
 Return output in EXACT format:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 VIDEO TITLE
 

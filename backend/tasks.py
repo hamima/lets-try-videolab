@@ -41,6 +41,7 @@ def RUNPOD_URL()         -> str:  return _cfg().get("RUNPOD_URL", "").rstrip("/"
 def OPENROUTER_API_KEY() -> str:  return _cfg().get("OPENROUTER_API_KEY", "")
 def USE_OPENROUTER()     -> bool: return bool(_cfg().get("USE_OPENROUTER", False))
 def MOCK_AI()            -> bool: return bool(_cfg().get("MOCK_AI", False))
+def ENABLE_FULL_PIPELINE() -> bool: return bool(_cfg().get("ENABLE_FULL_PIPELINE", False))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -100,8 +101,8 @@ STEPS = [
     {"id": "5",  "name": "Asset Acquisition Instructions","type": "gemini",           "inputs": {"asset_manifest": "asset_manifest.md"},                         "output": "asset_acquisition.md"},
     {"id": "6",  "name": "Fetch Assets",                  "type": "fetch_assets",     "output": "assets/"},
     {"id": "7",  "name": "AI Image Generation",           "type": "imagen",           "output": "assets/"},
-    {"id": "8",  "name": "Animation Prompt",              "type": "animation_prompt", "output": "assets/"},
-    {"id": "9",  "name": "ComfyUI Animation",             "type": "runpod_animation", "output": "assets/"},
+    {"id": "8",  "name": "Animation Prompt",              "type": "animation_prompt", "output": "assets/", "output_marker": "animated.txt"},
+    {"id": "9",  "name": "Video Animation",               "type": "runpod_animation", "output": "assets/", "output_marker": "animated.mp4"},
     {"id": "10", "name": "Narration Script",              "type": "gemini",           "inputs": {"story_script": "story_script.md"},                             "output": "narration_script.txt", "prompt_file": "10_narration.md"},
     {"id": "11", "name": "Narration Audio",               "type": "tts",              "output": "narration.mp3"},
     {"id": "12", "name": "Music Prompt",                  "type": "gemini",           "inputs": {"scene_plan": "scene_plan.md"},                                 "output": "music_prompt.txt"},
@@ -615,7 +616,7 @@ def _parse_asset_manifest(text: str) -> dict:
     return manifest
 
 
-def _run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
+def _run_animation_prompt_step(step: dict, ws: Path, state: dict, clean: bool = False) -> None:
     if MOCK_AI():
         assets_dir = ws / "assets"
         if not assets_dir.exists():
@@ -644,13 +645,22 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
     if not assets_dir.exists():
         return
 
+    if clean:
+        for pattern in ("animated.txt", "animation_blocked.txt"):
+            for f in assets_dir.rglob(pattern):
+                f.unlink()
+
     static_files = []
-    for candidate in ("image.png", "map.png", "chart.png"):
+    for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
         static_files.extend(sorted(assets_dir.rglob(candidate)))
 
     for asset_file in static_files:
         out_txt = asset_file.parent / "animated.txt"
         if out_txt.exists():
+            continue
+
+        blocked_marker = asset_file.parent / "animation_blocked.txt"
+        if blocked_marker.exists():
             continue
 
         parts = asset_file.parent.parts
@@ -666,7 +676,7 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
         visual_goal = meta.get("visual_goal", "")
         duration   = meta.get("duration", "")
 
-        name_to_type = {"image.png": "ai_image", "map.png": "map", "chart.png": "chart"}
+        name_to_type = {"image.png": "ai_image", "image.jpg": "real_image", "map.png": "map", "chart.png": "chart"}
         asset_type = name_to_type.get(asset_file.name, "image")
 
         prompt = (
@@ -678,7 +688,11 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
             .replace("{{duration}}", duration)
         )
 
-        text = _gemini_generate(prompt)
+        try:
+            text = _gemini_generate(prompt)
+        except Exception as e:
+            blocked_marker.write_text(str(e))
+            continue
         out_txt.write_text(text.strip())
 
         meta_path = asset_file.parent / "asset_meta.json"
@@ -695,7 +709,7 @@ def _resolve_animation_inputs(txt_file: Path) -> Optional[tuple]:
     """Return (static_asset, final_prompt, duration_seconds) for an animated.txt
     file, or None if no static asset is found."""
     static_asset = None
-    for candidate in ("image.png", "map.png", "chart.png"):
+    for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
         p = txt_file.parent / candidate
         if p.exists():
             static_asset = p
@@ -720,90 +734,82 @@ def _resolve_animation_inputs(txt_file: Path) -> Optional[tuple]:
     return static_asset, final_prompt, duration_seconds
 
 
-def _run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
+def _animate_single_asset(txt_file: Path) -> Path:
+    """Animate a single asset from its animated.txt prompt file.
+
+    Returns the path to the written animated.mp4. Raises on failure (no static
+    asset found, missing config, or backend error) — callers that want
+    best-effort batch behavior should catch exceptions themselves.
+    """
+    out_mp4 = txt_file.parent / "animated.mp4"
+
     if MOCK_AI():
         from mocks.generators import generate_placeholder_video
+        generate_placeholder_video(out_mp4, duration_seconds=5.0)
+        return out_mp4
 
-        assets_dir = ws / "assets"
-        if not assets_dir.exists():
-            return
-        for txt_file in sorted(assets_dir.rglob("animated.txt")):
-            out_mp4 = txt_file.parent / "animated.mp4"
-            if not out_mp4.exists():
-                generate_placeholder_video(out_mp4, duration_seconds=5.0)
-        return
-
-    assets_dir = ws / "assets"
-    if not assets_dir.exists():
-        return
-
-    animated_txts = sorted(assets_dir.rglob("animated.txt"))
+    resolved = _resolve_animation_inputs(txt_file)
+    if resolved is None:
+        raise RuntimeError("No static asset (image/map/chart) found for this animation prompt")
+    static_asset, final_prompt, duration_seconds = resolved
 
     if USE_OPENROUTER():
         from open_router.video import generate_video
         api_key = OPENROUTER_API_KEY()
-        for txt_file in animated_txts:
-            out_mp4 = txt_file.parent / "animated.mp4"
-            if out_mp4.exists():
-                continue
-            resolved = _resolve_animation_inputs(txt_file)
-            if resolved is None:
-                continue
-            static_asset, final_prompt, duration_seconds = resolved
-            try:
-                out_mp4.write_bytes(
-                    generate_video(static_asset, final_prompt, api_key=api_key, duration_seconds=duration_seconds)
-                )
-            except Exception:
-                continue
-        return
+        out_mp4.write_bytes(
+            generate_video(static_asset, final_prompt, api_key=api_key, duration_seconds=duration_seconds)
+        )
+        return out_mp4
 
     import requests as _requests
 
     url = RUNPOD_URL()
     if not url:
+        raise RuntimeError("RUNPOD_URL is not configured")
+
+    with static_asset.open("rb") as img_f:
+        submit_resp = _requests.post(
+            f"{url}/generate",
+            files={"image": (static_asset.name, img_f, "image/png")},
+            data={"prompt": final_prompt, "duration_seconds": duration_seconds},
+            timeout=30,
+        )
+    submit_resp.raise_for_status()
+    job_id = submit_resp.json()["job_id"]
+
+    job_status = None
+    for _ in range(120):
+        time.sleep(5)
+        status_resp = _requests.get(f"{url}/status/{job_id}", timeout=30)
+        status_resp.raise_for_status()
+        job_status = status_resp.json()["status"]
+        if job_status in ("done", "failed"):
+            break
+
+    if job_status != "done":
+        raise RuntimeError(f"Animation job did not complete (status={job_status})")
+
+    download_resp = _requests.get(f"{url}/download/{job_id}", timeout=120, stream=True)
+    download_resp.raise_for_status()
+    with out_mp4.open("wb") as f:
+        for chunk in download_resp.iter_content(chunk_size=65536):
+            if chunk:
+                f.write(chunk)
+
+    return out_mp4
+
+
+def _run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
+    assets_dir = ws / "assets"
+    if not assets_dir.exists():
         return
 
-    for txt_file in animated_txts:
+    for txt_file in sorted(assets_dir.rglob("animated.txt")):
         out_mp4 = txt_file.parent / "animated.mp4"
         if out_mp4.exists():
             continue
-
-        resolved = _resolve_animation_inputs(txt_file)
-        if resolved is None:
-            continue
-        static_asset, final_prompt, duration_seconds = resolved
-
         try:
-            with static_asset.open("rb") as img_f:
-                submit_resp = _requests.post(
-                    f"{url}/generate",
-                    files={"image": (static_asset.name, img_f, "image/png")},
-                    data={"prompt": final_prompt, "duration_seconds": duration_seconds},
-                    timeout=30,
-                )
-            submit_resp.raise_for_status()
-            job_id = submit_resp.json()["job_id"]
-
-            job_status = None
-            for _ in range(120):
-                time.sleep(5)
-                status_resp = _requests.get(f"{url}/status/{job_id}", timeout=30)
-                status_resp.raise_for_status()
-                job_status = status_resp.json()["status"]
-                if job_status in ("done", "failed"):
-                    break
-
-            if job_status != "done":
-                continue
-
-            download_resp = _requests.get(f"{url}/download/{job_id}", timeout=120, stream=True)
-            download_resp.raise_for_status()
-            with out_mp4.open("wb") as f:
-                for chunk in download_resp.iter_content(chunk_size=65536):
-                    if chunk:
-                        f.write(chunk)
-
+            _animate_single_asset(txt_file)
         except Exception:
             continue
 
@@ -898,6 +904,9 @@ def _output_exists(step: dict, ws: Path) -> bool:
         return (BASE_DIR / out).exists()
     if out.endswith("/"):
         p = ws / out
+        marker = step.get("output_marker")
+        if marker:
+            return p.exists() and any(p.rglob(marker))
         return p.exists() and any(p.rglob("*"))
     return (ws / out).exists()
 
@@ -909,7 +918,7 @@ def _dispatch(step: dict, ws: Path, state: dict, clean: bool = False) -> None:
     elif t == "imagen":
         _run_imagen_generation(step, ws, state, clean)
     elif t == "animation_prompt":
-        _run_animation_prompt_step(step, ws, state)
+        _run_animation_prompt_step(step, ws, state, clean)
     elif t == "runpod_animation":
         _run_runpod_animation(step, ws, state)
     elif t == "tts":
@@ -962,7 +971,8 @@ def _execute_step(
 def _run_full_pipeline(domain: str, run_id: str, ws: Path, state: dict) -> None:
     try:
         for step in STEPS:
-            _execute_step(step, ws, state, domain, run_id)
+            if not _execute_step(step, ws, state, domain, run_id):
+                break
     finally:
         _mark_idle(domain, run_id)
 
@@ -977,8 +987,13 @@ def _run_preview(domain: str, run_id: str, ws: Path, state: dict) -> None:
 
 def _run_single_step(domain: str, run_id: str, ws: Path, state: dict, step: dict, force: bool) -> None:
     is_imagen = step["type"] == "imagen"
+    is_animation_prompt = step["type"] == "animation_prompt"
     try:
-        _execute_step(step, ws, state, domain, run_id, force=force or is_imagen, clean=force and is_imagen)
+        _execute_step(
+            step, ws, state, domain, run_id,
+            force=force or is_imagen,
+            clean=force and (is_imagen or is_animation_prompt),
+        )
     finally:
         _mark_idle(domain, run_id)
 
@@ -1045,12 +1060,24 @@ def start_run(body: StartRunRequest):
             }
             save_state(ws, state)
 
+    is_preview = body.fresh and body.preview_only
+
+    if not is_preview and not ENABLE_FULL_PIPELINE():
+        return {
+            "run_id": run_id,
+            "domain": domain,
+            "workspace": str(ws.relative_to(BASE_DIR)),
+            "fresh": body.fresh,
+            "preview_only": False,
+            "message": "Workspace ready — run steps individually",
+        }
+
     if _is_active(domain, run_id):
         raise HTTPException(status_code=409, detail=f"Run '{run_id}' is already active")
 
     _mark_active(domain, run_id, None)
 
-    if body.fresh and body.preview_only:
+    if is_preview:
         target = _run_preview
         message = "Preview started — awaiting approval after step 1"
     else:
@@ -1069,7 +1096,7 @@ def start_run(body: StartRunRequest):
         "domain": domain,
         "workspace": str(ws.relative_to(BASE_DIR)),
         "fresh": body.fresh,
-        "preview_only": body.fresh and body.preview_only,
+        "preview_only": is_preview,
         "message": message,
     }
 
@@ -1172,6 +1199,8 @@ def continue_run(domain: str, run_id: str):
     """Resume the full pipeline after preview approval — runs all remaining steps."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
+    if not ENABLE_FULL_PIPELINE():
+        raise HTTPException(status_code=409, detail="Full pipeline run is disabled")
     try:
         ws = find_workspace(domain, run_id)
     except RuntimeError as e:
@@ -1255,8 +1284,17 @@ def list_runs(domain: Optional[str] = Query(default=None)):
 # Document parsers / serializers
 # ─────────────────────────────────────────────────────────────
 
+def _strip_label_bold(line: str) -> str:
+    """Strip a markdown bold wrapper around a leading label, e.g. '**LABEL:**
+    value' -> 'LABEL: value' or '**LABEL**' -> 'LABEL'. LLM output formatting
+    varies across models/providers (OpenRouter vs. native Gemini) — some wrap
+    section/field labels in bold, some don't — so parsers normalize this away
+    rather than relying on exact prompt compliance."""
+    return re.sub(r'^\*\*(.+?)\*\*', r'\1', line, count=1)
+
+
 def _is_section_header(line: str) -> bool:
-    t = line.strip()
+    t = _strip_label_bold(line.strip())
     if not t or t.startswith('*') or t.startswith('-') or t.startswith('#') or re.match(r'^\d+\.', t):
         return False
     if re.match(r'^[A-Z][A-Z\s\(\)\/\-\.,0-9]+$', t) and len(t) < 70:
@@ -1279,7 +1317,7 @@ def _parse_sections(text: str) -> list:
     for line in text.splitlines():
         if _is_section_header(line):
             flush()
-            current_label = line.strip()
+            current_label = _strip_label_bold(line.strip())
             current_lines = []
         else:
             current_lines.append(line)
@@ -1329,7 +1367,7 @@ def _parse_beats(scene_text: str) -> list:
         current.clear()
 
     for line in scene_text.splitlines():
-        t = line.strip()
+        t = _strip_label_bold(line.strip())
         m = re.match(r'^(Narration|Duration|Purpose|Emotion):\s*(.*)$', t, re.IGNORECASE)
         if m:
             key = m.group(1).lower()
@@ -1397,8 +1435,14 @@ def _serialize_scene_plan(scenes: list) -> str:
     return "\n---\n\n".join(parts)
 
 
-def _parse_asset_manifest(text: str) -> list:
-    """Parse asset_manifest.md (### SCENE N / **N.M** / KEY: value) into scenes."""
+def _parse_asset_manifest_scenes(text: str) -> list:
+    """Parse asset_manifest.md into scenes.
+
+    Supports both the markdown-heading format with explicit N.M asset
+    sub-ids (produced when a manifest is edited/saved via the UI) and the
+    plain "SCENE N" / KEY: value format the asset-planning prompt actually
+    asks the model to produce, where each scene has a single implicit asset.
+    """
     scenes: list = []
     current_fields: list = []
     current_asset_id: Optional[str] = None
@@ -1419,10 +1463,10 @@ def _parse_asset_manifest(text: str) -> list:
             current_fields.clear()
 
     for line in text.splitlines():
-        t = line.strip()
+        t = _strip_label_bold(line.strip())
 
-        # Scene: ### SCENE N or # SCENE N
-        m = re.match(r'^#{1,4}\s+SCENE\s+(\d+)', t, re.IGNORECASE)
+        # Scene: ### SCENE N, # SCENE N, or plain SCENE N
+        m = re.match(r'^#{0,4}\s*SCENE\s+(\d+)\b', t, re.IGNORECASE)
         if m:
             flush_asset()
             current_asset_id = None
@@ -1441,15 +1485,18 @@ def _parse_asset_manifest(text: str) -> list:
         if t in ('---', '***', '* * *') or (not t and current_asset_id is None):
             continue
 
-        if current_asset_id is not None:
+        if scenes:
             # Field with inline value: KEY: value
             m = re.match(r'^([A-Z][A-Z_]+):\s*(.*)$', t)
             if m:
+                if current_asset_id is None:
+                    # No explicit N.M sub-id under this scene — treat it as one implicit asset.
+                    current_asset_id = "1"
                 flush_field()
                 current_field_label = m.group(1)
                 inline = m.group(2).strip()
                 current_field_lines = [inline] if inline else []
-            elif current_field_label is not None:
+            elif current_asset_id is not None and current_field_label is not None:
                 # Multi-line continuation (e.g. STOCK_QUERIES list)
                 current_field_lines.append(line.rstrip())
 
@@ -1501,7 +1548,7 @@ def _parse_asset_acquisition(text: str) -> list:
             current_fields.clear()
 
     for line in text.splitlines():
-        t = line.strip()
+        t = _strip_label_bold(line.strip())
         if not t or t in ('---', '***'):
             continue
 
@@ -1517,8 +1564,9 @@ def _parse_asset_acquisition(text: str) -> list:
                     scenes.append({"id": sid, "assets": []})
             continue
 
-        # Asset: ASSET N.M
-        m = re.match(r'^ASSET\s+(\d+\.\d+)$', t)
+        # Asset: ASSET N.M, or plain ASSET N (model doesn't always use the
+        # dotted scene.asset sub-id convention)
+        m = re.match(r'^ASSET\s+(\d+(?:\.\d+)?)$', t)
         if m and current_scene_id is not None:
             flush_asset()
             current_asset_id = m.group(1)
@@ -1618,7 +1666,7 @@ def get_step_content(domain: str, run_id: str, step_id: str):
         fp = ws / cfg["file"]
         if not fp.exists():
             return {"kind": kind, "scenes": []}
-        return {"kind": kind, "scenes": _parse_asset_manifest(fp.read_text())}
+        return {"kind": kind, "scenes": _parse_asset_manifest_scenes(fp.read_text())}
 
     if kind == "asset_acquisition":
         fp = ws / cfg["file"]
@@ -1696,12 +1744,37 @@ def get_step_content(domain: str, run_id: str, step_id: str):
         assets_dir = ws / "assets"
         videos = []
         if assets_dir.exists():
-            for f in sorted(assets_dir.rglob("animated.mp4")):
-                rel = str(f.relative_to(ws))
+            for txt_file in sorted(assets_dir.rglob("animated.txt")):
+                asset_dir = txt_file.parent
+                parts = asset_dir.parts
+                scene_id = asset_id = ""
+                for p in parts:
+                    if p.startswith("scene_"):
+                        scene_id = p[len("scene_"):]
+                    elif p.startswith("asset_"):
+                        asset_id = p[len("asset_"):]
+
+                thumbnail_url = None
+                for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
+                    cp = asset_dir / candidate
+                    if cp.exists():
+                        rel = str(cp.relative_to(ws))
+                        thumbnail_url = f"/tasks/files/{domain}/{run_id}/{rel}"
+                        break
+
+                mp4 = asset_dir / "animated.mp4"
+                video_url = None
+                if mp4.exists():
+                    rel = str(mp4.relative_to(ws))
+                    video_url = f"/tasks/files/{domain}/{run_id}/{rel}"
+
                 videos.append({
-                    "path": rel,
-                    "url": f"/tasks/files/{domain}/{run_id}/{rel}",
-                    "label": str(f.parent.relative_to(assets_dir)),
+                    "scene_id": scene_id,
+                    "asset_id": asset_id,
+                    "label": str(asset_dir.relative_to(assets_dir)),
+                    "thumbnail_url": thumbnail_url,
+                    "video_url": video_url,
+                    "status": "done" if video_url else "pending",
                 })
         return {"kind": kind, "videos": videos}
 
@@ -1917,6 +1990,37 @@ def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: st
         raise HTTPException(status_code=404, detail="No image found from web search")
 
     raise HTTPException(status_code=400, detail="No image source (generated.txt or search_query.txt) found for this asset")
+
+
+@router.post("/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/animate")
+def animate_asset(domain: str, run_id: str, scene_id: str, asset_id: str):
+    """Delete the current animated.mp4 for an asset (if any) and animate it."""
+    if domain not in SUPPORTED_DOMAINS:
+        raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
+    try:
+        ws = find_workspace(domain, run_id)
+    except RuntimeError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    asset_dir = ws / "assets" / f"scene_{scene_id}" / f"asset_{asset_id}"
+    if not asset_dir.exists():
+        raise HTTPException(status_code=404, detail="Asset directory not found")
+
+    txt_file = asset_dir / "animated.txt"
+    if not txt_file.exists():
+        raise HTTPException(status_code=400, detail="No animation prompt (animated.txt) found for this asset")
+
+    out_mp4 = asset_dir / "animated.mp4"
+    if out_mp4.exists():
+        out_mp4.unlink()
+
+    try:
+        _animate_single_asset(txt_file)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Animation failed: {e}")
+
+    rel = str(out_mp4.relative_to(ws))
+    return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
 
 
 @router.get("/files/{domain}/{run_id}/{file_path:path}")

@@ -140,7 +140,7 @@ function NewRunModal({ open, onClose }: { open: boolean; onClose: () => void }) 
               </button>
             </div>
             <p className="text-xs text-muted-foreground">
-              {fresh ? 'Creates a new workspace and runs all 18 steps.' : 'Resumes the latest workspace, skipping completed steps.'}
+              {fresh ? 'Creates a new workspace — run each of the 18 steps individually from there.' : 'Resumes the latest workspace, skipping completed steps.'}
             </p>
           </div>
         </div>

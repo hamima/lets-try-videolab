@@ -14,7 +14,7 @@ const STEP_NAMES: Record<string, string> = {
   '1': 'Research', '2': 'Story Script', '3': 'Scene Breakdown',
   '4': 'Asset Manifest', '5': 'Asset Acquisition Instructions',
   '6': 'Fetch Assets', '7': 'AI Image Generation', '8': 'Animation Prompt',
-  '9': 'ComfyUI Animation', '10': 'Narration Script', '11': 'Narration Audio',
+  '9': 'Video Animation', '10': 'Narration Script', '11': 'Narration Audio',
   '12': 'Music Prompt', '13': 'Music Audio', '14': 'Asset Inventory',
   '15': 'Narration Timing', '16': 'Edit Decision List', '17': 'Final Assembly',
   '18': 'Platform Metadata',
@@ -456,7 +456,15 @@ AI_PROMPT: Wide-angle photograph of a circular citizens assembly hall, diverse g
       ],
     },
 
-    '9': { kind: 'video_list', videos: [] },
+    '9': {
+      kind: 'video_list',
+      videos: [
+        { scene_id: '1', asset_id: '1', label: 'scene_1/asset_1', thumbnail_url: 'https://picsum.photos/seed/protest1/640/360', video_url: null, status: 'pending' },
+        { scene_id: '2', asset_id: '1', label: 'scene_2/asset_1', thumbnail_url: 'https://picsum.photos/seed/graph2/640/360', video_url: null, status: 'pending' },
+        { scene_id: '3', asset_id: '1', label: 'scene_3/asset_1', thumbnail_url: 'https://picsum.photos/seed/parliament3/640/360', video_url: null, status: 'pending' },
+        { scene_id: '5', asset_id: '1', label: 'scene_5/asset_1', thumbnail_url: 'https://picsum.photos/seed/assembly5/640/360', video_url: null, status: 'pending' },
+      ],
+    },
 
     '10': { kind: 'markdown', content: `# Narration Script — The Collapse of Trust
 
@@ -752,9 +760,11 @@ SEARCH_QUERY: quantum computing data centre server racks hardware` },
     '9': {
       kind: 'video_list',
       videos: [
-        { path: 'assets/scene_1/asset_1/animated.mp4', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', label: 'scene_1/asset_1' },
-        { path: 'assets/scene_2/asset_1/animated.mp4', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', label: 'scene_2/asset_1' },
-        { path: 'assets/scene_3/asset_1/animated.mp4', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4', label: 'scene_3/asset_1' },
+        { scene_id: '1', asset_id: '1', label: 'scene_1/asset_1', thumbnail_url: 'https://picsum.photos/seed/quantum1/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', status: 'done' },
+        { scene_id: '2', asset_id: '1', label: 'scene_2/asset_1', thumbnail_url: 'https://picsum.photos/seed/qubit2/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', status: 'done' },
+        { scene_id: '3', asset_id: '1', label: 'scene_3/asset_1', thumbnail_url: 'https://picsum.photos/seed/map3/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4', status: 'done' },
+        { scene_id: '4', asset_id: '1', label: 'scene_4/asset_1', thumbnail_url: 'https://picsum.photos/seed/molecule4/640/360', video_url: null, status: 'pending' },
+        { scene_id: '5', asset_id: '1', label: 'scene_5/asset_1', thumbnail_url: 'https://picsum.photos/seed/datacenter5/640/360', video_url: null, status: 'pending' },
       ],
     },
 
@@ -1026,18 +1036,21 @@ export const tasksHandlers = [
     const ts = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '')
     const runId = ts.slice(0, 15)
     const key = `${body.domain}/${runId}`
-    const isPreview = body.fresh && body.preview_only
+    const isPreview = !!(body.fresh && body.preview_only)
     const newRun: RunState = {
       domain: body.domain,
       run_id: runId,
       workspace: `workspace/${body.domain}/${runId}`,
       created_at: new Date().toISOString(),
-      active: true,
-      active_step: '1',
+      // Full pipeline auto-run is disabled by default (ENABLE_FULL_PIPELINE=false):
+      // only the step-1 preview flow auto-progresses. Full runs start inactive —
+      // steps must be run individually.
+      active: isPreview,
+      active_step: isPreview ? '1' : null,
       start_step: 0,
       start_time: Date.now(),
       ms_per_step: isPreview ? 3000 : 8000, // preview: step 1 completes in 3s
-      max_step: isPreview ? 1 : 18,
+      max_step: isPreview ? 1 : 0,
       steps_completed: 0,
       steps_failed: 0,
       steps_total: 18,
@@ -1051,24 +1064,17 @@ export const tasksHandlers = [
       workspace: newRun.workspace,
       fresh: body.fresh,
       preview_only: isPreview,
-      message: isPreview ? 'Preview started — awaiting approval after step 1' : 'Full run started',
+      message: isPreview ? 'Preview started — awaiting approval after step 1' : 'Workspace ready — run steps individually',
     })
   }),
 
   // ─── Tasks: continue after preview approval ───────────────────────────────
 
-  http.post('/tasks/runs/:domain/:runId/continue', async ({ params }) => {
+  http.post('/tasks/runs/:domain/:runId/continue', async () => {
     await delay(200)
-    const key = `${params.domain}/${params.runId}`
-    const run = runStore[key]
-    if (!run) return HttpResponse.json({ detail: 'Not found' }, { status: 404 })
-    // Resume: extend max_step to 18, reset start from current completed
-    const { completed } = resolveRun(run)
-    run.max_step = 18
-    run.start_step = completed
-    run.start_time = Date.now()
-    run.active = true
-    return HttpResponse.json({ run_id: run.run_id, domain: run.domain, message: 'Pipeline resumed' })
+    // Gated behind ENABLE_FULL_PIPELINE, which is disabled by default — mirrors
+    // the real backend's 409 response.
+    return HttpResponse.json({ detail: 'Full pipeline run is disabled' }, { status: 409 })
   }),
 
   // ─── Tasks: run status ────────────────────────────────────────────────────

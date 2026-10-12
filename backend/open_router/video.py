@@ -15,6 +15,10 @@ from pathlib import Path
 from . import client, models
 
 
+def _nearest_supported_duration(duration_seconds: int, supported: tuple) -> int:
+    return min(supported, key=lambda d: abs(d - duration_seconds))
+
+
 def generate_video(
     image_path: Path,
     prompt: str,
@@ -26,6 +30,9 @@ def generate_video(
 ) -> bytes:
     mime_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
     data_uri = f"data:{mime_type};base64,{base64.b64encode(image_path.read_bytes()).decode()}"
+
+    if model == models.VIDEO_MODEL:
+        duration_seconds = _nearest_supported_duration(duration_seconds, models.VIDEO_MODEL_SUPPORTED_DURATIONS)
 
     submit_resp = client.post(
         "/videos",

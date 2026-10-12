@@ -1,0 +1,29 @@
+meta {
+  name: 11 - Narration Audio
+  type: http
+  seq: 11
+}
+
+# Google Gemini TTS models (the default tts_model) only support response_format
+# "pcm" (raw 24kHz mono 16-bit samples, no container) — "mp3" returns a 400.
+# Bruno can't transcode, so this returns raw PCM; the backend's generate_speech()
+# wraps it in a WAV container and transcodes to mp3 via ffmpeg.
+
+post {
+  url: {{base_url}}/audio/speech
+  body: json
+  auth: inherit
+}
+
+headers {
+  content-type: application/json
+}
+
+body:json {
+  {
+    "model": "{{tts_model}}",
+    "input": "Imagine a vault holding seventeen billion euros.",
+    "voice": "{{tts_voice}}",
+    "response_format": "pcm"
+  }
+}

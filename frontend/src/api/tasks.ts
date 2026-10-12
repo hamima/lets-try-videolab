@@ -101,7 +101,17 @@ export type StepContent =
   | { kind: 'video'; url: string | null }
   | { kind: 'image_list'; images: { path: string; url: string; label: string; scene_id: string; asset_id: string; filename: string }[] }
   | { kind: 'animation_list'; items: { path: string; text: string; label: string }[] }
-  | { kind: 'video_list'; videos: { path: string; url: string; label: string }[] }
+  | {
+      kind: 'video_list'
+      videos: {
+        scene_id: string
+        asset_id: string
+        label: string
+        thumbnail_url: string | null
+        video_url: string | null
+        status: 'done' | 'pending'
+      }[]
+    }
   | { kind: 'asset_list'; files: { path: string; name: string; folder: string }[] }
 
 // ─── API functions ────────────────────────────────────────────────────────────
@@ -170,6 +180,18 @@ export async function regenerateAssetImage(
 ): Promise<{ url: string }> {
   const { data } = await http.post<{ url: string }>(
     `/runs/${domain}/${runId}/assets/${sceneId}/${assetId}/regenerate-image`,
+  )
+  return data
+}
+
+export async function animateAsset(
+  domain: string,
+  runId: string,
+  sceneId: string,
+  assetId: string,
+): Promise<{ url: string }> {
+  const { data } = await http.post<{ url: string }>(
+    `/runs/${domain}/${runId}/assets/${sceneId}/${assetId}/animate`,
   )
   return data
 }

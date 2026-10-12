@@ -34,6 +34,7 @@ The hidden cost — what the developers didn't tell you
 The choice — what we do now determines what comes next
 
 Return output in EXACT format:
+Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
 
 VIDEO TITLE
 

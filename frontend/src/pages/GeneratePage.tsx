@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, RefreshCw, X } from 'lucide-react'
-import { continueRun, deleteRun, getRunStatus, getStepContent, runStep, startRun } from '@/api/tasks'
+import { deleteRun, getRunStatus, getStepContent, runStep, startRun } from '@/api/tasks'
 import { DOMAIN_DESCRIPTIONS } from '@/lib/domainDescriptions'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -25,7 +25,7 @@ const SUPPORTED_DOMAINS = [
 
 // ─── Stage types ──────────────────────────────────────────────────────────────
 
-type Stage = 'form' | 'waiting' | 'preview' | 'regenerating' | 'continuing'
+type Stage = 'form' | 'waiting' | 'preview' | 'regenerating'
 
 interface PendingRun {
   domain: string
@@ -122,16 +122,9 @@ export default function GeneratePage() {
     }
   }
 
-  async function handleApprove() {
+  function handleApprove() {
     if (!pendingRun) return
-    setStage('continuing')
-    try {
-      await continueRun(pendingRun.domain, pendingRun.run_id)
-      navigate(`/tasks/${pendingRun.domain}/${pendingRun.run_id}`)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
-      setStage('preview')
-    }
+    navigate(`/tasks/${pendingRun.domain}/${pendingRun.run_id}`)
   }
 
   async function handleRegenerate() {
@@ -162,7 +155,7 @@ export default function GeneratePage() {
   // ─── Render ────────────────────────────────────────────────────────────────
 
   // Preview / regenerating: full-width card
-  if (stage === 'preview' || stage === 'regenerating' || stage === 'continuing') {
+  if (stage === 'preview' || stage === 'regenerating') {
     return (
       <div className="min-h-[calc(100vh-56px)] bg-background flex items-center justify-center p-6">
         <Card className="w-full max-w-2xl">
@@ -173,7 +166,7 @@ export default function GeneratePage() {
                 <CardDescription>
                   {stage === 'regenerating'
                     ? 'Generating a new topic…'
-                    : 'Review the topic before the pipeline continues.'}
+                    : 'Review the topic, then open the pipeline to run the remaining steps.'}
                 </CardDescription>
               </div>
               <button
@@ -187,8 +180,8 @@ export default function GeneratePage() {
           </CardHeader>
 
           <CardContent className="space-y-5">
-            {stage === 'regenerating' || stage === 'continuing' ? (
-              <Spinner label={stage === 'continuing' ? 'Starting pipeline…' : 'Generating new topic…'} />
+            {stage === 'regenerating' ? (
+              <Spinner label="Generating new topic…" />
             ) : (
               <>
                 <ScrollArea className="h-80 rounded-lg border p-4 bg-muted/30">
@@ -207,7 +200,7 @@ export default function GeneratePage() {
                   </Button>
                   <div className="flex-1" />
                   <Button variant="ghost" onClick={handleCancel}>Cancel</Button>
-                  <Button onClick={handleApprove}>Approve & Continue</Button>
+                  <Button onClick={handleApprove}>Approve & Open Pipeline</Button>
                 </div>
               </>
             )}
@@ -282,8 +275,8 @@ export default function GeneratePage() {
             </div>
             <p className="text-xs text-muted-foreground">
               {fresh
-                ? 'Generates a research overview for your approval before the full pipeline runs.'
-                : 'Resumes the latest workspace for this domain, skipping completed steps.'}
+                ? 'Generates a research overview for your approval, then opens the pipeline for you to run steps individually.'
+                : 'Resumes the latest workspace for this domain — run each step individually from there.'}
             </p>
           </div>
 

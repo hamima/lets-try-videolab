@@ -10,13 +10,17 @@ Writes: workspace/asset_inventory.txt
 
 
 import json
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).parent.parent
-WORKSPACE = BASE_DIR / "workspace"
-ASSETS_DIR = BASE_DIR / "assets"
+# WORKSPACE_DIR is set by backend/tasks.py's _run_script() to the per-run workspace
+# (workspace/<domain>/<run_id>); fall back to the repo-root workspace/ for standalone use.
+WORKSPACE = Path(os.environ.get("WORKSPACE_DIR", BASE_DIR / "workspace"))
+ASSETS_DIR = WORKSPACE / "assets"
 
 
 
@@ -83,7 +87,7 @@ def run():
 
    if not scene_dirs:
        out("  NO ASSETS FOUND. Run Step 6 first.")
-       return
+       sys.exit(1)
 
 
    for scene_dir in scene_dirs:

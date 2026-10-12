@@ -8,6 +8,12 @@ You will receive:
 3. A list of available video/image assets per scene with their properties
 4. Music swell points (moments between scenes where music can be louder)
 
+ASSET INVENTORY:
+{{asset_inventory}}
+
+NARRATION TIMING:
+{{narration_timing}}
+
 
 CRITICAL: The narration_timing.json contains the REAL timestamps from the actual audio file.
 These override any duration estimates in the scene plan. ALWAYS use narration_timing.json as your master clock.
