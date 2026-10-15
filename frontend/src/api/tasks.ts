@@ -123,12 +123,40 @@ export async function listRuns(domain?: string): Promise<RunSummary[]> {
   return data
 }
 
+export interface VideoConfig {
+  duration_min_minutes: number
+  duration_max_minutes: number
+  video_split_percent: number
+}
+
 export async function startRun(
   domain: string,
   fresh: boolean,
   previewOnly = false,
+  videoConfig?: VideoConfig,
 ): Promise<{ run_id: string; domain: string }> {
-  const { data } = await http.post('/runs', { domain, fresh, preview_only: previewOnly })
+  const { data } = await http.post('/runs', {
+    domain,
+    fresh,
+    preview_only: previewOnly,
+    video_config: videoConfig,
+  })
+  return data
+}
+
+export interface CostEstimate {
+  min_cost: number
+  max_cost: number
+}
+
+export async function estimateCost(
+  durationMin: number,
+  durationMax: number,
+  videoSplitPercent: number,
+): Promise<CostEstimate> {
+  const { data } = await http.get<CostEstimate>('/estimate-cost', {
+    params: { duration_min: durationMin, duration_max: durationMax, video_split: videoSplitPercent },
+  })
   return data
 }
 

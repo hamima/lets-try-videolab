@@ -21,6 +21,8 @@ from fastapi import APIRouter, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+import cost_estimate
+
 
 # ─────────────────────────────────────────────────────────────
 # API Keys — loaded from settings.json (managed via Settings UI)
@@ -293,6 +295,15 @@ def _run_gemini_step(step: dict, ws: Path, state: dict) -> None:
         if not src.exists():
             raise FileNotFoundError(f"Required input missing for step {step['id']}: {src.name}")
         prompt = prompt.replace("{{" + var_name + "}}", src.read_text())
+
+    if step["id"] == "3":
+        video_config = state.get("video_config") or {}
+        duration_min = video_config.get("duration_min_minutes", 2)
+        duration_max = video_config.get("duration_max_minutes", 30)
+        video_split_percent = video_config.get("video_split_percent", 25)
+        duration_range = f"between {duration_min} and {duration_max} minutes"
+        prompt = prompt.replace("{{duration_range}}", duration_range)
+        prompt = prompt.replace("{{video_split_percent}}", str(video_split_percent))
 
     text = _gemini_generate(prompt)
 
@@ -596,6 +607,7 @@ def _parse_asset_manifest(text: str) -> dict:
         scene = asset = None
         asset = "1"
         ken_burns = visual_goal = duration = ""
+        animate = "yes"
         for line in block.splitlines():
             s = line.strip()
             if s.upper().startswith("SCENE "):
@@ -611,8 +623,15 @@ def _parse_asset_manifest(text: str) -> dict:
                 visual_goal = s.split(":", 1)[1].strip()
             elif s.upper().startswith("DURATION:"):
                 duration = s.split(":", 1)[1].strip()
+            elif s.upper().startswith("ANIMATE:"):
+                animate = s.split(":", 1)[1].strip().lower()
         if scene:
-            manifest[(scene, asset)] = {"ken_burns": ken_burns, "visual_goal": visual_goal, "duration": duration}
+            manifest[(scene, asset)] = {
+                "ken_burns": ken_burns,
+                "visual_goal": visual_goal,
+                "duration": duration,
+                "animate": animate,
+            }
     return manifest
 
 
@@ -675,6 +694,10 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict, clean: bool = 
         ken_burns  = meta.get("ken_burns", "zoom_in")
         visual_goal = meta.get("visual_goal", "")
         duration   = meta.get("duration", "")
+        animate    = meta.get("animate", "yes")
+
+        if animate == "no":
+            continue
 
         name_to_type = {"image.png": "ai_image", "image.jpg": "real_image", "map.png": "map", "chart.png": "chart"}
         asset_type = name_to_type.get(asset_file.name, "image")
@@ -1002,10 +1025,17 @@ def _run_single_step(domain: str, run_id: str, ws: Path, state: dict, step: dict
 # Request / Response models
 # ─────────────────────────────────────────────────────────────
 
+class VideoConfig(BaseModel):
+    duration_min_minutes: int
+    duration_max_minutes: int
+    video_split_percent: int
+
+
 class StartRunRequest(BaseModel):
     domain: str
     fresh: bool = False
     preview_only: bool = False  # fresh-start preview: run step 1 only, then wait for approval
+    video_config: Optional[VideoConfig] = None
 
 
 class RunStepRequest(BaseModel):
@@ -1030,6 +1060,11 @@ class SaveAssetFilesRequest(BaseModel):
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
+@router.get("/estimate-cost")
+def get_cost_estimate(duration_min: int = Query(...), duration_max: int = Query(...), video_split: int = Query(...)):
+    return cost_estimate.estimate_cost_range(duration_min, duration_max, video_split)
+
+
 @router.post("/runs")
 def start_run(body: StartRunRequest):
     if body.domain not in SUPPORTED_DOMAINS:
@@ -1044,6 +1079,7 @@ def start_run(body: StartRunRequest):
             "failed": [],
             "domain": domain,
             "voice_id": DOMAIN_VOICE_MAP[domain],
+            "video_config": body.video_config.model_dump() if body.video_config else None,
         }
         save_state(ws, state)
     else:
@@ -1368,7 +1404,7 @@ def _parse_beats(scene_text: str) -> list:
 
     for line in scene_text.splitlines():
         t = _strip_label_bold(line.strip())
-        m = re.match(r'^(Narration|Duration|Purpose|Emotion):\s*(.*)$', t, re.IGNORECASE)
+        m = re.match(r'^(Narration|Duration|Purpose|Emotion|Animate):\s*(.*)$', t, re.IGNORECASE)
         if m:
             key = m.group(1).lower()
             inline = m.group(2).strip()
@@ -1429,6 +1465,7 @@ def _serialize_scene_plan(scenes: list) -> str:
                 "Duration:",  beat.get("duration", ""),
                 "Purpose:",   purpose_field,
                 "Emotion:",   beat.get("emotion", ""),
+                "Animate:",   beat.get("animate", ""),
                 "",
             ]
         parts.append("\n".join(lines))

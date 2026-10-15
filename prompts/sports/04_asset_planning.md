@@ -119,6 +119,7 @@ KEN_BURNS: (zoom_in | zoom_out | pan_left | pan_right) — only for ai_image
 STOCK_QUERIES: (4 search variations if stock_video/photo, otherwise N/A)
 PRIORITY: (Critical | Optional)
 DURATION: (from scene plan)
+ANIMATE: (yes | no — carry over exactly from the matching scene's "Animate" field in the scene plan)
 
 
 ---
@@ -133,4 +134,3 @@ QUALITY CHECKLIST:
 - [ ] No vague or generic prompts
 - [ ] Every prompt creates a SINGLE clear visual frame (not a sequence or montage)
 - [ ] Prompts describe a FROZEN MOMENT — no motion described (motion comes from Ken Burns)
-

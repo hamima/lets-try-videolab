@@ -119,6 +119,7 @@ KEN_BURNS: (zoom_in | zoom_out | pan_left | pan_right) — only for ai_image
 STOCK_QUERIES: (4 search variations if stock_video/photo, otherwise N/A)
 PRIORITY: (Critical | Optional)
 DURATION: (from scene plan)
+ANIMATE: (yes | no — carry over exactly from the matching scene's "Animate" field in the scene plan)
 
 
 ---

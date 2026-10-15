@@ -57,6 +57,7 @@ BASE_URL = "https://openrouter.ai/api/v1"
 TEXT_MODEL  = "google/gemini-2.5-pro"
 IMAGE_MODEL = "google/gemini-3.1-flash-image"
 VIDEO_MODEL = "alibaba/wan-2.6"  # closest Wan model OpenRouter hosts; Wan2.2-I2V-A14B (self-hosted) isn't on OpenRouter
+VIDEO_MODEL_RESOLUTION = "720p"  # cheapest usable tier for image-to-video ($0.10/s vs $0.15/s at the 1080p default); 480p isn't supported for image-to-video on this model
 TTS_MODEL   = "google/gemini-3.1-flash-tts-preview"  # no "-preview" suffix does not exist on OpenRouter
 TTS_VOICE   = "Kore"
 MUSIC_MODEL = "google/lyria-3-clip-preview"
@@ -89,7 +90,7 @@ This propagates through the step runner and is marked `"failed"` by the normal s
 Encapsulates the full submit → poll → download lifecycle so the call site stays synchronous-looking, mirroring how `_run_runpod_animation()` already does inline polling against the self-hosted RunPod server:
 
 1. If `model == models.VIDEO_MODEL` (the default `alibaba/wan-2.6`), round `duration_seconds` to the nearest value in `models.VIDEO_MODEL_SUPPORTED_DURATIONS` (`(5, 10)`) — this model only accepts 5s or 10s clips, unlike the self-hosted RunPod server which accepts arbitrary durations.
-2. `POST /videos` with `model`, `prompt`, `duration`, and `frame_images: [{"type": "image_url", "image_url": {"url": <base64 data URI>}, "frame_type": "first_frame"}]` → `{id, polling_url, status: "pending"}`.
+2. `POST /videos` with `model`, `prompt`, `duration`, `resolution` (default `models.VIDEO_MODEL_RESOLUTION`, `"720p"`), and `frame_images: [{"type": "image_url", "image_url": {"url": <base64 data URI>}, "frame_type": "first_frame"}]` → `{id, polling_url, status: "pending"}`.
 3. Poll `GET polling_url` (absolute URL) every `poll_interval` seconds until `status` is `completed`/`failed`/`cancelled`/`expired`, or raise `TimeoutError` after `max_wait_seconds` (default 600s, matching RunPod's `120 * 5s` budget).
 4. On `completed`, download from `unsigned_urls[0]` (falls back to `{BASE_URL}/videos/{id}/content?index=0` if absent) and return raw MP4 bytes.
 

@@ -1,14 +1,24 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, RefreshCw, X } from 'lucide-react'
-import { deleteRun, getRunStatus, getStepContent, runStep, startRun } from '@/api/tasks'
+import { deleteRun, estimateCost, getRunStatus, getStepContent, runStep, startRun } from '@/api/tasks'
+import type { CostEstimate } from '@/api/tasks'
 import { DOMAIN_DESCRIPTIONS } from '@/lib/domainDescriptions'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Slider } from '@/components/ui/slider'
+import { Skeleton } from '@/components/ui/skeleton'
 import MarkdownViewer from '@/components/viewers/MarkdownViewer'
+
+// ─── Duration/split defaults ────────────────────────────────────────────────
+
+const DURATION_MIN = 2
+const DURATION_MAX = 30
+const DEFAULT_DURATION_RANGE: [number, number] = [3, 6]
+const DEFAULT_VIDEO_SPLIT_PERCENT = 25
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -51,6 +61,8 @@ export default function GeneratePage() {
   // Form state
   const [domain, setDomain] = useState('political')
   const [fresh, setFresh] = useState(false)
+  const [durationRange, setDurationRange] = useState<[number, number]>(DEFAULT_DURATION_RANGE)
+  const [videoSplitPercent, setVideoSplitPercent] = useState(DEFAULT_VIDEO_SPLIT_PERCENT)
 
   // Flow state
   const [stage, setStage] = useState<Stage>('form')
@@ -58,7 +70,23 @@ export default function GeneratePage() {
   const [previewContent, setPreviewContent] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Cost estimate state
+  const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null)
+  const [costLoading, setCostLoading] = useState(false)
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [durationMin, durationMax] = durationRange
+
+  useEffect(() => {
+    setCostLoading(true)
+    const handle = setTimeout(() => {
+      estimateCost(durationMin, durationMax, videoSplitPercent)
+        .then(setCostEstimate)
+        .catch(() => setCostEstimate(null))
+        .finally(() => setCostLoading(false))
+    }, 400)
+    return () => clearTimeout(handle)
+  }, [durationMin, durationMax, videoSplitPercent])
 
   function stopPolling() {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
@@ -99,11 +127,16 @@ export default function GeneratePage() {
 
   async function handleStart() {
     setError(null)
+    const videoConfig = {
+      duration_min_minutes: durationMin,
+      duration_max_minutes: durationMax,
+      video_split_percent: videoSplitPercent,
+    }
     if (fresh) {
       // Fresh start: preview flow — run step 1 only, then wait for approval
       setStage('waiting')
       try {
-        const res = await startRun(domain, true, true)
+        const res = await startRun(domain, true, true, videoConfig)
         const run = { domain: res.domain, run_id: res.run_id }
         setPendingRun(run)
         await waitForStep1(run)
@@ -114,7 +147,7 @@ export default function GeneratePage() {
     } else {
       // Resume: start full pipeline and navigate immediately
       try {
-        const res = await startRun(domain, false)
+        const res = await startRun(domain, false, false, videoConfig)
         navigate(`/tasks/${res.domain}/${res.run_id}`)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Something went wrong')
@@ -278,6 +311,46 @@ export default function GeneratePage() {
                 ? 'Generates a research overview for your approval, then opens the pipeline for you to run steps individually.'
                 : 'Resumes the latest workspace for this domain — run each step individually from there.'}
             </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Video Length</Label>
+              <span className="text-xs text-muted-foreground">{durationMin} – {durationMax} min</span>
+            </div>
+            <Slider
+              min={DURATION_MIN}
+              max={DURATION_MAX}
+              step={1}
+              value={durationRange}
+              onValueChange={(v: number[]) => setDurationRange([v[0], v[1]])}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Video / Image Split</Label>
+              <span className="text-xs text-muted-foreground">{videoSplitPercent}% video / {100 - videoSplitPercent}% image</span>
+            </div>
+            <Slider
+              min={0}
+              max={100}
+              step={5}
+              value={[videoSplitPercent]}
+              onValueChange={(v: number[]) => setVideoSplitPercent(v[0])}
+            />
+            <p className="text-xs text-muted-foreground">% of the final video that is animated — the rest stays as static images.</p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Estimated Cost</Label>
+            {costLoading || !costEstimate ? (
+              <Skeleton className="h-5 w-32" />
+            ) : (
+              <p className="text-sm text-foreground">
+                ${costEstimate.min_cost.toFixed(2)} – ${costEstimate.max_cost.toFixed(2)}
+              </p>
+            )}
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

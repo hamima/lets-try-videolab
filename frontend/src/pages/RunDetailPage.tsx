@@ -14,6 +14,8 @@ import AssetFolderViewer from '@/components/viewers/AssetFolderViewer'
 import ImageSceneViewer from '@/components/viewers/ImageSceneViewer'
 import VideoSceneViewer from '@/components/viewers/VideoSceneViewer'
 import AnimationPromptViewer from '@/components/viewers/AnimationPromptViewer'
+import NarrationTimingViewer, { type NarrationTiming } from '@/components/viewers/NarrationTimingViewer'
+import EditDecisionListViewer, { type EditDecisionList } from '@/components/viewers/EditDecisionListViewer'
 import { cn } from '@/lib/utils'
 
 // ─── Domain colours (same as list page) ─────────────────────────────────────
@@ -167,6 +169,10 @@ function ContentPanel({
                 domain={domain}
                 runId={runId}
               />
+            ) : content.kind === 'json' && step.id === '15' && content.content ? (
+              <NarrationTimingViewer data={content.content as NarrationTiming} />
+            ) : content.kind === 'json' && step.id === '16' && content.content && !Array.isArray(content.content) ? (
+              <EditDecisionListViewer data={content.content as EditDecisionList} />
             ) : content.kind === 'video_list' ? (
               <VideoSceneViewer
                 videos={content.videos}

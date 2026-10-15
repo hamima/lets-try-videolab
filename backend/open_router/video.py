@@ -25,6 +25,7 @@ def generate_video(
     api_key: str,
     duration_seconds: int = 5,
     model: str = models.VIDEO_MODEL,
+    resolution: str = models.VIDEO_MODEL_RESOLUTION,
     poll_interval: float = 5.0,
     max_wait_seconds: float = 600.0,
 ) -> bytes:
@@ -41,6 +42,7 @@ def generate_video(
             "model": model,
             "prompt": prompt,
             "duration": duration_seconds,
+            "resolution": resolution,
             "frame_images": [
                 {"type": "image_url", "image_url": {"url": data_uri}, "frame_type": "first_frame"}
             ],
