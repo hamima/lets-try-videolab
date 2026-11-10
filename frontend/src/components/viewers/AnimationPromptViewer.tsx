@@ -103,7 +103,11 @@ export default function AnimationPromptViewer({ items, domain, runId }: Props) {
   )
 
   if (scenes.length === 0) {
-    return <p className="text-sm text-muted-foreground">No animation prompts yet.</p>
+    return (
+      <p className="text-sm text-muted-foreground">
+        No animation prompts yet. These are only generated for AI video assets.
+      </p>
+    )
   }
 
   function toggleScene(id: string) {
@@ -115,7 +119,11 @@ export default function AnimationPromptViewer({ items, domain, runId }: Props) {
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
+      <p className="text-xs text-muted-foreground">
+        Animation prompts are only generated for <span className="font-medium">AI video</span> assets.
+        Ken Burns assets are animated programmatically and don't appear here.
+      </p>
       {scenes.map(({ scene_id, assets }) => {
         const open = expandedScenes.has(scene_id)
         return (

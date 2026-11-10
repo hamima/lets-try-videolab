@@ -30,10 +30,10 @@ def resolve_prompt_file(step_id: str, domain: str, prompt_file: str = None) -> P
 | 1 | `01_research.md` | none | `research_dossier.md` |
 | 2 | `02_story.md` | `{{research_dossier}}` | `story_script.md` |
 | 18 | `02b_platform_metadata.md` | `{{research_dossier}}` + `{{story_script}}` | `platform_metadata.json` |
-| 3 | `03_scene_breakdown.md` | `{{story_script}}` | `scene_plan.md` |
-| 4 | `04_asset_planning.md` | `{{scene_plan}}` | `asset_manifest.md` |
+| 3 | `03_scene_breakdown.md` | `{{story_script}}` + `{{duration_range}}` | `scene_plan.md` |
+| 4 | `04_asset_planning.md` | `{{scene_plan}}` + `{{total_duration_seconds}}` + `{{target_ai_video_seconds}}` | `asset_manifest.md` |
 | 5 | `05_asset_acquisition.md` | `{{asset_manifest}}` | `asset_acquisition.md` |
-| 8 | `08_animation_prompt.md` | `{{ken_burns}}` + `{{visual_goal}}` + `{{asset_type}}` + `{{duration}}` + `{{story_excerpt}}` | `animated.txt` per static asset |
+| 8 | `08_animation_prompt.md` | `{{image_prompt}}` + `{{visual_goal}}` + `{{asset_type}}` + `{{duration}}` + `{{story_excerpt}}` | `animated.txt` per `ai_video` asset |
 | 10 | `10_narration.md` | `{{story_script}}` | `narration_script.txt` |
 | 12 | `12_music.md` | `{{scene_plan}}` | `music_prompt.txt` |
 | 16 | `16_creative_director.md` | `{{asset_inventory}}` + `{{narration_timing}}` | `edl.json` |
@@ -56,6 +56,43 @@ def gemini_generate(prompt: str, model: str = GEMINI_MODEL) -> str:
 ```
 
 Step 16 output must be valid JSON — strip markdown code fences and validate with `json.loads()` before saving as `edl.json`.
+
+### Step 3 — duration range
+
+`{{duration_range}}` (e.g. "between 3 and 6 minutes") is read from `state["video_config"]`
+(default: 2–30 minutes) and injected into `03_scene_breakdown.md`, telling the model to plan the
+total video length within that window and choose scene count/per-scene duration accordingly. Each
+scene's output has `Narration:`/`Duration:`/`Purpose:`/`Emotion:` fields, parsed by `_parse_beats()`
+and round-tripped by `_serialize_scene_plan()` — there is no per-scene animate flag at this stage.
+
+### Step 4 — video/image split and the `ASSET_TYPE`/`KEN_BURNS`/`INTENSITY` fields
+
+Before calling Gemini for step 4, `_run_gemini_step()` computes two derived values and injects them
+into `04_asset_planning.md`:
+
+```python
+total_seconds = sum(_duration_to_seconds(beat["duration"]) for scene in scene_plan for beat in scene["beats"])
+video_split_percent = state["video_config"].get("video_split_percent", 25)
+target_ai_video_seconds = round(total_seconds * video_split_percent / 100)
+```
+
+- `{{total_duration_seconds}}` — total narration duration across every scene/beat in `scene_plan.md`
+- `{{target_ai_video_seconds}}` — the slice of that total (per the video/image split slider) that
+  should be assigned to `ai_video` assets
+
+`04_asset_planning.md` instructs the model: for every scene that would otherwise be `ai_image`,
+assign roughly `{{target_ai_video_seconds}}` seconds' worth (out of `{{total_duration_seconds}}`
+total) to `ai_video` instead, prioritizing scenes with the strongest motion/visual potential; the
+rest stay `ai_image`. Each asset's output now includes:
+
+- `ASSET_TYPE` — `ai_video` or `ai_image`
+- `KEN_BURNS` — `zoom_in` / `zoom_out` / `pan_left` / `pan_right` for `ai_image` only; `N/A` for `ai_video`
+- `INTENSITY` — `0.1`–`0.3` for `ai_image` only; `N/A` for `ai_video`
+
+Step 5 (`05_asset_acquisition.md`) carries `KEN_BURNS`/`INTENSITY` over verbatim per asset. Step 6
+(`_run_fetch_assets()`) writes them into each asset's `asset_meta.json` sidecar (`null` for
+`ai_video`), which Step 8 and Step 9 use to decide how each asset is animated — see
+`docs/asset-generation.md`.
 
 ---
 

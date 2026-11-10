@@ -121,7 +121,7 @@ STEPS = [
        "script": "fetch_assets.py",
        "input": "asset_acquisition.md",
        "output": "assets/",
-       "description": "Parse acquisition doc to JSON, then fetch stock videos/photos"
+       "description": "Parse acquisition doc to JSON, then write AI generation prompts"
    },
    {
        "id": 7,

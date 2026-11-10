@@ -10,6 +10,8 @@ interface ImageItem {
   scene_id: string
   asset_id: string
   filename: string
+  prompt: string
+  asset_type: string | null
 }
 
 interface Props {
@@ -81,19 +83,28 @@ function AssetImageCard({
   return (
     <>
       <div className="space-y-2">
-        <div
-          className="relative rounded-md overflow-hidden border bg-muted cursor-zoom-in aspect-video"
-          onClick={() => setLightbox(true)}
-        >
-          <img
-            src={url}
-            alt={item.label}
-            className="w-full h-full object-cover"
-            onError={(e) => {
-              ;(e.target as HTMLImageElement).src =
-                'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="%23e5e7eb"/></svg>'
-            }}
-          />
+        <div className="grid grid-cols-2 gap-2">
+          <div
+            className="relative rounded-md overflow-hidden border bg-muted cursor-zoom-in aspect-video"
+            onClick={() => setLightbox(true)}
+          >
+            <img
+              src={url}
+              alt={item.label}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                ;(e.target as HTMLImageElement).src =
+                  'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="%23e5e7eb"/></svg>'
+              }}
+            />
+          </div>
+          <div className="rounded-md border bg-muted/20 p-2 aspect-video overflow-y-auto">
+            {item.prompt ? (
+              <p className="text-xs leading-relaxed whitespace-pre-wrap">{item.prompt}</p>
+            ) : (
+              <span className="text-xs text-muted-foreground">No prompt</span>
+            )}
+          </div>
         </div>
         <Button
           size="sm"
@@ -156,7 +167,7 @@ export default function ImageSceneViewer({ images, domain, runId }: Props) {
             </button>
 
             {open && (
-              <div className="p-4 grid grid-cols-2 gap-4">
+              <div className="p-4 grid grid-cols-1 gap-4">
                 {assets.map(({ asset_id, img }) => (
                   <div key={asset_id}>
                     <p className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">

@@ -110,7 +110,6 @@ CREATIVE PRINCIPLES:
 - Prefer landscape (16:9) clips over portrait — this is a YouTube documentary
 - Prefer higher resolution variants when available (use the BEST recommendation from inventory)
 - If a scene has multiple assets (asset_1, asset_2), pick the one whose visual goal best fits the narration moment
-- For scenes with only images: apply Ken Burns effect (slow zoom or pan)
 - Maintain visual variety — avoid choosing the same style consecutively
 - Transitions between scenes: use crossfade (0.5s) within same emotional segment, hard cut when emotion shifts dramatically
 
@@ -192,12 +191,11 @@ OUTPUT FORMAT (strict JSON, EDL v2):
      "clips": [
        {
          "path": "assets/scene_1/asset_1/q1_v3.jpg",
-         "type": "image",
+         "type": "video",
          "trim_start_sec": 0,
          "trim_end_sec": 6.63,
          "duration_sec": 6.63,
          "effects": {
-           "ken_burns": {"direction": "zoom_in", "intensity": 0.2},
            "speed": 1.0,
            "zoom_punch": {"at_sec": 3.0, "scale": 1.12, "duration_sec": 0.3},
            "transition_out": "crossfade"
@@ -230,7 +228,6 @@ OUTPUT FORMAT (strict JSON, EDL v2):
          "trim_end_sec": 5.0,
          "duration_sec": 5.2,
          "effects": {
-           "ken_burns": null,
            "speed": 0.96,
            "zoom_punch": null,
            "transition_out": "cut"
@@ -243,7 +240,6 @@ OUTPUT FORMAT (strict JSON, EDL v2):
          "trim_end_sec": 5.0,
          "duration_sec": 5.2,
          "effects": {
-           "ken_burns": null,
            "speed": 0.96,
            "zoom_punch": {"at_sec": 2.5, "scale": 1.15, "duration_sec": 0.3},
            "transition_out": "cut"
@@ -256,7 +252,6 @@ OUTPUT FORMAT (strict JSON, EDL v2):
          "trim_end_sec": 10.2,
          "duration_sec": 5.2,
          "effects": {
-           "ken_burns": null,
            "speed": 1.0,
            "zoom_punch": null,
            "transition_out": "crossfade"
@@ -292,8 +287,6 @@ RULES:
 - `start_time_sec` must be cumulative (scene 1 starts at 0, scene 2 starts at scene 1 end, etc.)
 - Sum of clip duration_sec values MUST equal scene duration_sec
 - If a clip source is shorter than the clip duration, set `speed` to slow it down (minimum 0.5x)
-- For images (.jpg, .png, .webp): set type to "image" and add ken_burns effect
-- Ken Burns options: {"direction": "zoom_in" | "zoom_out" | "pan_left" | "pan_right", "intensity": 0.1-0.3}
 - Total timeline duration must equal narration duration from timing file
 - Include brief "reasoning" per scene explaining the creative choice
 - Output ONLY the JSON — no commentary, no markdown fences, no headers
@@ -330,7 +323,6 @@ QUALITY CHECKLIST:
 - [ ] No more than 2 SFX per scene
 - [ ] Text is in same language as narration
 - [ ] Total duration matches narration length
-- [ ] Ken Burns applied to all image clips
 - [ ] Zoom punches used sparingly (1-2 per scene max)
 - [ ] Speed adjustments keep clips within 0.5x–1.5x range
 

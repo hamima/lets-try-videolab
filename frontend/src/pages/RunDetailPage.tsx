@@ -55,12 +55,14 @@ function ContentPanel({
   runId,
   reloadKey,
   onRerun,
+  onSaved,
 }: {
   step: StepDetail | null
   domain: string
   runId: string
   reloadKey: number
   onRerun: () => void
+  onSaved: () => void
 }) {
   const [content, setContent] = useState<StepContent | null>(null)
   const [loading, setLoading] = useState(false)
@@ -98,12 +100,10 @@ function ContentPanel({
           {step.status === 'failed'  && <Badge variant="destructive">Failed</Badge>}
           {step.status === 'pending' && <Badge variant="outline">Pending</Badge>}
         </div>
-        {step.type !== 'runpod_animation' && (
-          <Button size="sm" variant="outline" onClick={onRerun} className="gap-1.5">
-            <RotateCcw className="w-3.5 h-3.5" />
-            Rerun
-          </Button>
-        )}
+        <Button size="sm" variant="outline" onClick={onRerun} className="gap-1.5">
+          <RotateCcw className="w-3.5 h-3.5" />
+          Rerun
+        </Button>
       </div>
 
       {/* Content */}
@@ -119,37 +119,33 @@ function ContentPanel({
           ) : step.status === 'pending' ? (
             <div className="text-center py-12">
               <p className="text-muted-foreground text-sm">This step hasn't run yet.</p>
-              {step.type !== 'runpod_animation' && (
-                <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
-                  <RotateCcw className="w-3.5 h-3.5" /> Run now
-                </Button>
-              )}
+              <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
+                <RotateCcw className="w-3.5 h-3.5" /> Run now
+              </Button>
             </div>
           ) : step.status === 'failed' ? (
             <div className="text-center py-12">
               <p className="text-destructive text-sm font-medium">Step failed</p>
               <p className="text-muted-foreground text-xs mt-1">Check server logs for details.</p>
-              {step.type !== 'runpod_animation' && (
-                <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
-                  <RotateCcw className="w-3.5 h-3.5" /> Retry
-                </Button>
-              )}
+              <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={onRerun}>
+                <RotateCcw className="w-3.5 h-3.5" /> Retry
+              </Button>
             </div>
           ) : content ? (
             content.kind === 'research' || content.kind === 'story' ? (
               <ResearchEditor
                 sections={content.sections}
-                onSave={(sections) => updateStepContent(domain, runId, step.id, { sections })}
+                onSave={async (sections) => { await updateStepContent(domain, runId, step.id, { sections }); onSaved() }}
               />
             ) : content.kind === 'scene_plan' ? (
               <ScenePlanEditor
                 scenes={content.scenes}
-                onSave={(scenes) => updateStepContent(domain, runId, step.id, { scenes })}
+                onSave={async (scenes) => { await updateStepContent(domain, runId, step.id, { scenes }); onSaved() }}
               />
             ) : content.kind === 'asset_manifest' || content.kind === 'asset_acquisition' ? (
               <AssetPlanEditor
                 scenes={content.scenes}
-                onSave={(asset_scenes) => updateStepContent(domain, runId, step.id, { asset_scenes })}
+                onSave={async (asset_scenes) => { await updateStepContent(domain, runId, step.id, { asset_scenes }); onSaved() }}
               />
             ) : content.kind === 'assets_viewer' ? (
               <AssetFolderViewer
@@ -356,6 +352,7 @@ export default function RunDetailPage() {
               runId={runId}
               reloadKey={contentReloadKey}
               onRerun={() => selectedStep && handleRerun(selectedStep)}
+              onSaved={() => fetchStatus()}
             />
           </div>
         </div>

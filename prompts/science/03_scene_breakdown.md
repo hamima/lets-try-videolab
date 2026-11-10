@@ -19,9 +19,6 @@ For every sentence identify:
 - Visual objective
 - Emotional tone
 - Duration
-- Animate (yes/no)
-
-Mark approximately {{video_split_percent}}% of the total narration duration as "Animate: yes", prioritizing the scenes with the strongest visual/motion potential. Mark the remaining scenes "Animate: no" — these will stay as static images.
 
 Return output in EXACT format:
 Plain text only — do not wrap labels or section names in markdown (no **bold**, no backticks, no code fences).
@@ -43,10 +40,6 @@ Purpose:
 
 
 Emotion:
-...
-
-
-Animate:
 ...
 
 

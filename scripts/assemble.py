@@ -237,35 +237,6 @@ def build_single_clip(clip_data: dict, duration: float, scene_id: int):
        return clip.with_duration(duration)
 
 
-   if clip_type == "image":
-       clip = ImageClip(str(asset_path))
-       clip = resize_to_fill(clip, TARGET_WIDTH, TARGET_HEIGHT)
-       ken_burns = effects.get("ken_burns")
-       if ken_burns:
-           intensity = ken_burns.get("intensity", 0.15)
-           direction = ken_burns.get("direction", "zoom_in")
-           if direction == "zoom_in":
-               clip = clip.resized(lambda t: 1.0 + intensity * (t / duration))
-           elif direction == "zoom_out":
-               clip = clip.resized(lambda t: (1.0 + intensity) - intensity * (t / duration))
-           elif direction == "pan_left":
-               base_clip = clip.resized(1.0 + intensity)
-               shift = int(TARGET_WIDTH * intensity)
-               base_clip = base_clip.with_position(
-                   lambda t: (-int(shift * (t / duration)), 0)
-               )
-               clip = base_clip
-           elif direction == "pan_right":
-               base_clip = clip.resized(1.0 + intensity)
-               shift = int(TARGET_WIDTH * intensity)
-               base_clip = base_clip.with_position(
-                   lambda t: (-shift + int(shift * (t / duration)), 0)
-               )
-               clip = base_clip
-       clip = clip.with_duration(duration)
-       return clip
-
-
    # Video
    try:
        clip = VideoFileClip(str(asset_path))

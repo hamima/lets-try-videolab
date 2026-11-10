@@ -99,7 +99,7 @@ export type StepContent =
   | { kind: 'assets_viewer'; scenes: AssetFolderScene[] }
   | { kind: 'audio'; url: string | null }
   | { kind: 'video'; url: string | null }
-  | { kind: 'image_list'; images: { path: string; url: string; label: string; scene_id: string; asset_id: string; filename: string }[] }
+  | { kind: 'image_list'; images: { path: string; url: string; label: string; scene_id: string; asset_id: string; filename: string; prompt: string; asset_type: string | null }[] }
   | { kind: 'animation_list'; items: { path: string; text: string; label: string; scene_id: string; asset_id: string; image_url: string | null }[] }
   | {
       kind: 'video_list'
@@ -111,6 +111,10 @@ export type StepContent =
         prompt: string
         video_url: string | null
         status: 'done' | 'pending'
+        asset_type: string
+        ken_burns: string | null
+        intensity: number | null
+        duration: string | null
       }[]
     }
   | { kind: 'asset_list'; files: { path: string; name: string; folder: string }[] }

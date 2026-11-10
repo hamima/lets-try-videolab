@@ -3,7 +3,7 @@ backend/open_router/video.py — Image-to-video generation via OpenRouter's Vide
 
 OpenRouter's video generation is asynchronous (submit -> poll -> download). This
 module hides that lifecycle behind a single synchronous-looking call, mirroring
-how tasks.py's _run_runpod_animation() already does inline submit/poll/download
+how tasks.py's _run_video_animation() already does inline submit/poll/download
 against the self-hosted RunPod server.
 """
 

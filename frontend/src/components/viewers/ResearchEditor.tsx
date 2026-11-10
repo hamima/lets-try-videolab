@@ -8,9 +8,11 @@ import { Separator } from '@/components/ui/separator'
 export function AutoTextarea({
   value,
   onChange,
+  disabled = false,
 }: {
   value: string
   onChange: (v: string) => void
+  disabled?: boolean
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
 
@@ -26,7 +28,8 @@ export function AutoTextarea({
       ref={ref}
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="w-full resize-none text-sm leading-relaxed bg-transparent border border-input rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring overflow-hidden"
+      disabled={disabled}
+      className="w-full resize-none text-sm leading-relaxed bg-transparent border border-input rounded-md px-3 py-2 focus:outline-none focus:ring-1 focus:ring-ring overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed"
       style={{ minHeight: 40 }}
     />
   )

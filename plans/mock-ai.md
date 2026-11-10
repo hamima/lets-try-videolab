@@ -10,7 +10,6 @@ and the Settings UI.
 - Gemini text steps return per-step realistic fixture files (topic: "The History of the Internet")
 - Binary outputs (images, audio, video) are generated on the fly with PIL / ffmpeg — no committed binaries
 - RunPod animation mock writes the placeholder MP4 directly; no fake HTTP server
-- `_fetch_real_image` mock writes a placeholder PNG directly to the asset directory
 - All fixture text outputs must be structurally valid so downstream parsing steps work (scene plan format, EDL JSON, etc.)
 
 ---
@@ -52,13 +51,13 @@ Valid scene plan in `SCENE N / Narration: / Duration: / Purpose: / Emotion:` for
 
 ### `asset_manifest.md`
 Valid asset manifest in `### SCENE N / **N.M** / KEY: value` format (parseable by
-`_parse_asset_manifest`). One asset per beat. Mix of `TYPE: ai_image` and `TYPE: real_image`.
+`_parse_asset_manifest`). One asset per beat. Mix of `TYPE: ai_image` and `TYPE: ai_video`.
 Include `KEN_BURNS:`, `VISUAL_GOAL:`, `DURATION:` fields.
 
 ### `asset_acquisition.md`
 Valid acquisition doc in `SCENE N / ASSET N.M / LABEL:\nvalue` format (parseable by
 `_parse_asset_acquisition`). Matches the assets declared in `asset_manifest.md`.
-AI assets get `AI_PROMPT:` values; real assets get `SEARCH_QUERY:` values.
+All assets get `AI_PROMPT:` values.
 
 ### `narration_script.txt`
 Narration text with `=== ELEVENLABS VERSION ===` separator. Human-readable narration
@@ -124,7 +123,6 @@ placeholders substituted with sensible defaults.
 ### Mock `_run_imagen_generation`
 - At the top of `_run_imagen_generation`, after `if MOCK_AI():`:
   - For each `generated.txt` without an `image.png`: call `generate_placeholder_image(out_img)`
-  - For each `search_query.txt` without an `image.jpg`: call `generate_placeholder_image(out_img.with_suffix('.jpg'))` — rename to `.jpg` for compatibility
 
 ### Mock `_run_elevenlabs_tts`
 - At the top of `_run_elevenlabs_tts`, after `if MOCK_AI():`:
@@ -141,11 +139,6 @@ placeholders substituted with sensible defaults.
   - Iterate over all `animated.txt` files in the assets dir
   - For each one without an `animated.mp4` sibling, call `generate_placeholder_video(out_mp4)`
   - Return early
-
-### Mock `_fetch_real_image`
-- At the top of `_fetch_real_image`, after `if MOCK_AI():`:
-  - Call `generate_placeholder_image(out_img)` where `out_img = out_dir / "image.jpg"`
-  - Return `True`
 
 ---
 

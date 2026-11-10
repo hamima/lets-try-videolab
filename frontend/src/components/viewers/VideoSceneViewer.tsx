@@ -11,6 +11,19 @@ interface VideoItem {
   prompt: string
   video_url: string | null
   status: 'done' | 'pending'
+  asset_type: string
+  ken_burns: string | null
+  intensity: number | null
+  duration: string | null
+}
+
+function formatKenBurns(direction: string | null): string {
+  if (!direction) return 'Ken Burns'
+  const label = direction
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ')
+  return `Ken Burns: ${label}`
 }
 
 interface Props {
@@ -85,22 +98,31 @@ function AssetVideoCard({
           )}
         </div>
       </div>
-      <Button
-        size="sm"
-        variant="outline"
-        className="gap-1.5"
-        disabled={animating}
-        onClick={handleAnimate}
-      >
-        {animating ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        ) : videoUrl ? (
-          <RefreshCw className="w-3.5 h-3.5" />
-        ) : (
-          <Play className="w-3.5 h-3.5" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-1.5"
+          disabled={animating}
+          onClick={handleAnimate}
+        >
+          {animating ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : videoUrl ? (
+            <RefreshCw className="w-3.5 h-3.5" />
+          ) : (
+            <Play className="w-3.5 h-3.5" />
+          )}
+          {animating ? 'Animating…' : videoUrl ? 'Re-animate' : 'Animate'}
+        </Button>
+        {item.asset_type !== 'ai_video' && (
+          <span className="inline-block text-[11px] font-medium text-muted-foreground border rounded-full px-2.5 py-1 bg-muted/40">
+            {formatKenBurns(item.ken_burns)}
+            {item.intensity != null && ` · ${item.intensity}`}
+            {item.duration && ` · ${item.duration}`}
+          </span>
         )}
-        {animating ? 'Animating…' : videoUrl ? 'Re-animate' : 'Animate'}
-      </Button>
+      </div>
     </div>
   )
 }

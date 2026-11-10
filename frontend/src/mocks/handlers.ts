@@ -13,7 +13,7 @@ const inferencePollCounts: Record<string, number> = {}
 const STEP_NAMES: Record<string, string> = {
   '1': 'Research', '2': 'Story Script', '3': 'Scene Breakdown',
   '4': 'Asset Manifest', '5': 'Asset Acquisition Instructions',
-  '6': 'Fetch Assets', '7': 'AI Image Generation', '8': 'Animation Prompt',
+  '6': 'Fetch Assets', '7': 'AI Asset Generation', '8': 'Animation Prompt',
   '9': 'Video Animation', '10': 'Narration Script', '11': 'Narration Audio',
   '12': 'Music Prompt', '13': 'Music Audio', '14': 'Asset Inventory',
   '15': 'Narration Timing', '16': 'Edit Decision List', '17': 'Final Assembly',
@@ -23,7 +23,7 @@ const STEP_NAMES: Record<string, string> = {
 const STEP_TYPES: Record<string, string> = {
   '1': 'gemini', '2': 'gemini', '3': 'gemini', '4': 'gemini', '5': 'gemini',
   '6': 'fetch_assets', '7': 'imagen', '8': 'animation_prompt',
-  '9': 'runpod_animation', '10': 'gemini', '11': 'tts', '12': 'gemini',
+  '9': 'video_animation', '10': 'gemini', '11': 'tts', '12': 'gemini',
   '13': 'music', '14': 'script', '15': 'script', '16': 'gemini',
   '17': 'script', '18': 'gemini',
 }
@@ -277,7 +277,7 @@ SCENE 1 / ASSET 2
 KEN_BURNS: pan_left
 VISUAL_GOAL: Close-up of protest signs in multiple languages
 DURATION: 6 seconds
-TYPE: real_image
+TYPE: ai_image
 
 ---
 SCENE 2 / ASSET 1
@@ -298,7 +298,7 @@ SCENE 4 / ASSET 1
 KEN_BURNS: zoom_in
 VISUAL_GOAL: Portrait of a citizen activist speaking to camera
 DURATION: 9 seconds
-TYPE: real_image
+TYPE: ai_image
 
 ---
 SCENE 5 / ASSET 1
@@ -318,7 +318,7 @@ DURATION: 12 seconds
 
 ---
 SCENE 1 / ASSET 2
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: pan_left
 VISUAL_GOAL: Close-up protest signs in English, French, Spanish, Arabic
 DURATION: 6 seconds
@@ -339,7 +339,7 @@ DURATION: 10 seconds
 
 ---
 SCENE 4 / ASSET 1
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: zoom_in
 VISUAL_GOAL: Activist speaking passionately at outdoor event
 DURATION: 9 seconds
@@ -360,11 +360,8 @@ AI_PROMPT: Aerial drone photograph of an enormous protest crowd filling a grand 
 
 SCENE 1
 ASSET 2
-TYPE: real_image
-SEARCH_QUERY: protest signs multiple languages Europe 2026
-SEARCH_VARIATIONS:
-1. "protest signs multilingual Europe demonstration"
-2. "political protest placards international"
+TYPE: ai_image
+AI_PROMPT: Close-up photograph of hand-painted protest signs held above a crowd, text visible in English, French, Spanish, and Arabic, overcast daylight, documentary photography style, photorealistic, 4K
 
 SCENE 2
 ASSET 1
@@ -378,8 +375,8 @@ AI_PROMPT: Split-screen image: left side shows an ornate 19th century parliament
 
 SCENE 4
 ASSET 1
-TYPE: real_image
-SEARCH_QUERY: citizen activist speaking crowd outdoor rally
+TYPE: ai_image
+AI_PROMPT: Portrait of a determined citizen activist speaking passionately to a crowd at an outdoor rally, microphone in hand, natural daylight, documentary photography style, photorealistic, 4K
 
 SCENE 5
 ASSET 1
@@ -398,8 +395,8 @@ AI_PROMPT: Wide-angle photograph of a circular citizens assembly hall, diverse g
               { type: 'text',  label: 'Animation Prompt', filename: 'animated.txt', content: 'The camera begins high above the city square, slowly pushing forward and descending toward the mass of protesters below.' },
             ]},
             { id: '1.2', files: [
-              { type: 'image', label: 'Image', filename: 'image.jpg', url: 'https://picsum.photos/seed/activist1/640/360' },
-              { type: 'text',  label: 'Search Query', filename: 'search_query.txt', content: 'citizen activist speaking crowd outdoor rally' },
+              { type: 'image', label: 'Image', filename: 'image.png', url: 'https://picsum.photos/seed/activist1/640/360' },
+              { type: 'text',  label: 'AI Prompt', filename: 'generated.txt', content: 'Portrait of a determined citizen activist speaking passionately to a crowd at an outdoor rally, microphone in hand, natural daylight, documentary photography style, photorealistic' },
             ]},
           ],
         },
@@ -439,10 +436,10 @@ AI_PROMPT: Wide-angle photograph of a circular citizens assembly hall, diverse g
     '7': {
       kind: 'image_list',
       images: [
-        { path: 'assets/scene_1/asset_1/image.png', url: 'https://picsum.photos/seed/protest1/640/360', label: 'scene_1/asset_1' },
-        { path: 'assets/scene_2/asset_1/image.png', url: 'https://picsum.photos/seed/graph2/640/360', label: 'scene_2/asset_1' },
-        { path: 'assets/scene_3/asset_1/image.png', url: 'https://picsum.photos/seed/parliament3/640/360', label: 'scene_3/asset_1' },
-        { path: 'assets/scene_5/asset_1/image.png', url: 'https://picsum.photos/seed/assembly5/640/360', label: 'scene_5/asset_1' },
+        { path: 'assets/scene_1/asset_1/image.png', url: 'https://picsum.photos/seed/protest1/640/360', label: 'scene_1/asset_1', prompt: 'A massive crowd of protesters filling a city square at dusk, signs raised, warm cinematic lighting, wide shot.', asset_type: 'ai_image' },
+        { path: 'assets/scene_2/asset_1/image.png', url: 'https://picsum.photos/seed/graph2/640/360', label: 'scene_2/asset_1', prompt: 'Clean infographic visualisation of a declining line graph showing trust in government from 2016 to 2026, dark background, glowing blue line, percentage labels, photorealistic data art, 4K', asset_type: 'ai_image' },
+        { path: 'assets/scene_3/asset_1/image.png', url: 'https://picsum.photos/seed/parliament3/640/360', label: 'scene_3/asset_1', prompt: 'Split screen: a gilded, static parliament chamber on the left, a dynamic digital voting interface on the right.', asset_type: 'ai_image' },
+        { path: 'assets/scene_5/asset_1/image.png', url: 'https://picsum.photos/seed/assembly5/640/360', label: 'scene_5/asset_1', prompt: 'A circular citizen assembly in session, people leaning in to converse, hands raised, warm natural light.', asset_type: 'ai_image' },
       ],
     },
 
@@ -459,10 +456,10 @@ AI_PROMPT: Wide-angle photograph of a circular citizens assembly hall, diverse g
     '9': {
       kind: 'video_list',
       videos: [
-        { scene_id: '1', asset_id: '1', label: 'scene_1/asset_1', thumbnail_url: 'https://picsum.photos/seed/protest1/640/360', video_url: null, status: 'pending' },
-        { scene_id: '2', asset_id: '1', label: 'scene_2/asset_1', thumbnail_url: 'https://picsum.photos/seed/graph2/640/360', video_url: null, status: 'pending' },
-        { scene_id: '3', asset_id: '1', label: 'scene_3/asset_1', thumbnail_url: 'https://picsum.photos/seed/parliament3/640/360', video_url: null, status: 'pending' },
-        { scene_id: '5', asset_id: '1', label: 'scene_5/asset_1', thumbnail_url: 'https://picsum.photos/seed/assembly5/640/360', video_url: null, status: 'pending' },
+        { scene_id: '1', asset_id: '1', label: 'scene_1/asset_1', thumbnail_url: 'https://picsum.photos/seed/protest1/640/360', video_url: null, status: 'pending', asset_type: 'ai_video', ken_burns: null, intensity: null, duration: '6 seconds' },
+        { scene_id: '2', asset_id: '1', label: 'scene_2/asset_1', thumbnail_url: 'https://picsum.photos/seed/graph2/640/360', video_url: null, status: 'pending', asset_type: 'ai_video', ken_burns: null, intensity: null, duration: '6 seconds' },
+        { scene_id: '3', asset_id: '1', label: 'scene_3/asset_1', thumbnail_url: 'https://picsum.photos/seed/parliament3/640/360', video_url: null, status: 'pending', asset_type: 'ai_video', ken_burns: null, intensity: null, duration: '6 seconds' },
+        { scene_id: '5', asset_id: '1', label: 'scene_5/asset_1', thumbnail_url: 'https://picsum.photos/seed/assembly5/640/360', video_url: null, status: 'pending', asset_type: 'ai_video', ken_burns: null, intensity: null, duration: '6 seconds' },
       ],
     },
 
@@ -513,10 +510,9 @@ SCENE 1 / ASSET 1
   Status    : READY
 
 SCENE 1 / ASSET 2
-  Type      : real_image
-  File      : assets/scene_1/asset_2/image.jpg
+  Type      : ai_image
+  File      : assets/scene_1/asset_2/image.png
   Size      : 842 KB
-  Source    : Wikimedia Commons
   Status    : READY
 
 SCENE 2 / ASSET 1
@@ -567,7 +563,7 @@ SUMMARY
         total_duration: 142.8,
         clips: [
           { clip_id: 1, asset: 'scene_1/asset_1/animated.mp4', narration_start: 0.0,   narration_end: 18.4,  ken_burns: 'zoom_in',   duration: 12.0 },
-          { clip_id: 2, asset: 'scene_1/asset_2/image.jpg',    narration_start: 12.0,  narration_end: 18.4,  ken_burns: 'pan_left',  duration: 6.0  },
+          { clip_id: 2, asset: 'scene_1/asset_2/image.png',    narration_start: 12.0,  narration_end: 18.4,  ken_burns: 'pan_left',  duration: 6.0  },
           { clip_id: 3, asset: 'scene_2/asset_1/animated.mp4', narration_start: 18.4,  narration_end: 34.1,  ken_burns: 'zoom_out',  duration: 8.0  },
           { clip_id: 4, asset: 'scene_3/asset_1/animated.mp4', narration_start: 34.1,  narration_end: 58.9,  ken_burns: 'pan_right', duration: 10.0 },
           { clip_id: 5, asset: 'scene_5/asset_1/animated.mp4', narration_start: 82.3,  narration_end: 142.8, ken_burns: 'zoom_out',  duration: 11.0 },
@@ -664,7 +660,7 @@ DURATION: 8 seconds` },
 
 ---
 SCENE 1 / ASSET 1
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: zoom_in
 VISUAL_GOAL: Quantum processor cryogenic cooling unit
 DURATION: 10 seconds
@@ -692,7 +688,7 @@ DURATION: 11 seconds
 
 ---
 SCENE 5 / ASSET 1
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: zoom_out
 VISUAL_GOAL: Modern quantum data centre interior
 DURATION: 8 seconds` },
@@ -701,8 +697,8 @@ DURATION: 8 seconds` },
 
 SCENE 1
 ASSET 1
-TYPE: real_image
-SEARCH_QUERY: IBM quantum processor cryogenic dilution refrigerator
+TYPE: ai_image
+AI_PROMPT: A golden quantum processor lattice suspended inside a cryogenic dilution refrigerator, intricate superconducting loops, cathedral-like precision, macro photography, photorealistic, 4K
 
 SCENE 2
 ASSET 1
@@ -721,28 +717,28 @@ AI_PROMPT: 3D molecular structure simulation of a complex drug molecule, atoms r
 
 SCENE 5
 ASSET 1
-TYPE: real_image
-SEARCH_QUERY: quantum computing data centre server racks hardware` },
+TYPE: ai_image
+AI_PROMPT: Rows of cryogenic quantum hardware racks stretching into the distance inside a vast data center, wide establishing shot, photorealistic, dramatic lighting, 4K` },
 
     '6': {
       kind: 'asset_list',
       files: [
-        { path: 'assets/scene_1/asset_1/search_query.txt', name: 'search_query.txt', folder: 'scene_1/asset_1' },
+        { path: 'assets/scene_1/asset_1/generated.txt', name: 'generated.txt', folder: 'scene_1/asset_1' },
         { path: 'assets/scene_2/asset_1/generated.txt', name: 'generated.txt', folder: 'scene_2/asset_1' },
         { path: 'assets/scene_3/asset_1/generated.txt', name: 'generated.txt', folder: 'scene_3/asset_1' },
         { path: 'assets/scene_4/asset_1/generated.txt', name: 'generated.txt', folder: 'scene_4/asset_1' },
-        { path: 'assets/scene_5/asset_1/search_query.txt', name: 'search_query.txt', folder: 'scene_5/asset_1' },
+        { path: 'assets/scene_5/asset_1/generated.txt', name: 'generated.txt', folder: 'scene_5/asset_1' },
       ],
     },
 
     '7': {
       kind: 'image_list',
       images: [
-        { path: 'assets/scene_1/asset_1/image.jpg', url: 'https://picsum.photos/seed/quantum1/640/360', label: 'scene_1/asset_1' },
-        { path: 'assets/scene_2/asset_1/image.png', url: 'https://picsum.photos/seed/qubit2/640/360', label: 'scene_2/asset_1' },
-        { path: 'assets/scene_3/asset_1/image.png', url: 'https://picsum.photos/seed/map3/640/360', label: 'scene_3/asset_1' },
-        { path: 'assets/scene_4/asset_1/image.png', url: 'https://picsum.photos/seed/molecule4/640/360', label: 'scene_4/asset_1' },
-        { path: 'assets/scene_5/asset_1/image.jpg', url: 'https://picsum.photos/seed/datacenter5/640/360', label: 'scene_5/asset_1' },
+        { path: 'assets/scene_1/asset_1/image.png', url: 'https://picsum.photos/seed/quantum1/640/360', label: 'scene_1/asset_1', prompt: 'A golden quantum processor lattice inside a cryogenic chamber, intricate superconducting loops, cathedral-like precision, macro photography.', asset_type: 'ai_image' },
+        { path: 'assets/scene_2/asset_1/image.png', url: 'https://picsum.photos/seed/qubit2/640/360', label: 'scene_2/asset_1', prompt: 'A glowing network visualization of quantum entanglement, nodes multiplying and connecting, organic neuron-like growth, dark background.', asset_type: 'ai_image' },
+        { path: 'assets/scene_3/asset_1/image.png', url: 'https://picsum.photos/seed/chart3/640/360', label: 'scene_3/asset_1', prompt: 'Clean infographic world map showing quantum computing investment by nation, glowing data points, dark background, blue and gold colour scheme, 4K', asset_type: 'ai_image' },
+        { path: 'assets/scene_4/asset_1/image.png', url: 'https://picsum.photos/seed/molecule4/640/360', label: 'scene_4/asset_1', prompt: 'A rotating molecular structure with electron probability clouds, quantum simulation arrows, scientific visualization.', asset_type: 'ai_image' },
+        { path: 'assets/scene_5/asset_1/image.png', url: 'https://picsum.photos/seed/datacenter5/640/360', label: 'scene_5/asset_1', prompt: 'Rows of cryogenic quantum hardware racks stretching into the distance inside a vast data center, wide establishing shot.', asset_type: 'ai_image' },
       ],
     },
 
@@ -760,11 +756,11 @@ SEARCH_QUERY: quantum computing data centre server racks hardware` },
     '9': {
       kind: 'video_list',
       videos: [
-        { scene_id: '1', asset_id: '1', label: 'scene_1/asset_1', thumbnail_url: 'https://picsum.photos/seed/quantum1/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', status: 'done' },
-        { scene_id: '2', asset_id: '1', label: 'scene_2/asset_1', thumbnail_url: 'https://picsum.photos/seed/qubit2/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', status: 'done' },
-        { scene_id: '3', asset_id: '1', label: 'scene_3/asset_1', thumbnail_url: 'https://picsum.photos/seed/map3/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4', status: 'done' },
-        { scene_id: '4', asset_id: '1', label: 'scene_4/asset_1', thumbnail_url: 'https://picsum.photos/seed/molecule4/640/360', video_url: null, status: 'pending' },
-        { scene_id: '5', asset_id: '1', label: 'scene_5/asset_1', thumbnail_url: 'https://picsum.photos/seed/datacenter5/640/360', video_url: null, status: 'pending' },
+        { scene_id: '1', asset_id: '1', label: 'scene_1/asset_1', thumbnail_url: 'https://picsum.photos/seed/quantum1/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4', status: 'done', asset_type: 'ai_video', ken_burns: null, intensity: null, duration: '10 seconds' },
+        { scene_id: '2', asset_id: '1', label: 'scene_2/asset_1', thumbnail_url: 'https://picsum.photos/seed/qubit2/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4', status: 'done', asset_type: 'ai_video', ken_burns: null, intensity: null, duration: '8 seconds' },
+        { scene_id: '3', asset_id: '1', label: 'scene_3/asset_1', thumbnail_url: 'https://picsum.photos/seed/map3/640/360', video_url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4', status: 'done', asset_type: 'ai_image', ken_burns: 'pan_left', intensity: 0.2, duration: '9 seconds' },
+        { scene_id: '4', asset_id: '1', label: 'scene_4/asset_1', thumbnail_url: 'https://picsum.photos/seed/molecule4/640/360', video_url: null, status: 'pending', asset_type: 'ai_video', ken_burns: null, intensity: null, duration: '11 seconds' },
+        { scene_id: '5', asset_id: '1', label: 'scene_5/asset_1', thumbnail_url: 'https://picsum.photos/seed/datacenter5/640/360', video_url: null, status: 'pending', asset_type: 'ai_image', ken_burns: 'zoom_out', intensity: 0.25, duration: '8 seconds' },
       ],
     },
 
@@ -806,10 +802,9 @@ Generated: 2026-08-19 13:22:07
 ==================================================
 
 SCENE 1 / ASSET 1
-  Type      : real_image
-  File      : assets/scene_1/asset_1/image.jpg
+  Type      : ai_image
+  File      : assets/scene_1/asset_1/image.png
   Size      : 1.1 MB
-  Source    : Wikimedia Commons
   Status    : READY
 
 SCENE 2 / ASSET 1
@@ -831,10 +826,9 @@ SCENE 4 / ASSET 1
   Status    : READY
 
 SCENE 5 / ASSET 1
-  Type      : real_image
-  File      : assets/scene_5/asset_1/image.jpg
+  Type      : ai_image
+  File      : assets/scene_5/asset_1/image.png
   Size      : 943 KB
-  Source    : Pexels
   Status    : READY
 
 SUMMARY
@@ -932,14 +926,14 @@ DURATION: 8 seconds` },
 
 ---
 SCENE 1 / ASSET 1
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: zoom_in
 VISUAL_GOAL: EU Parliament chamber
 DURATION: 10 seconds
 
 ---
 SCENE 2 / ASSET 1
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: pan_right
 VISUAL_GOAL: Large GPU server farm
 DURATION: 8 seconds` },
@@ -948,13 +942,13 @@ DURATION: 8 seconds` },
 
 SCENE 1
 ASSET 1
-TYPE: real_image
-SEARCH_QUERY: European Parliament chamber AI regulation debate session
+TYPE: ai_image
+AI_PROMPT: Wide-angle photograph of the European Parliament chamber in session, politicians debating AI regulation, formal lighting, photorealistic, 4K
 
 SCENE 2
 ASSET 1
-TYPE: real_image
-SEARCH_QUERY: GPU server farm data centre AI training` },
+TYPE: ai_image
+AI_PROMPT: Rows of GPU servers in a large data centre training AI models, glowing status lights, dramatic industrial lighting, photorealistic, 4K` },
   },
 }
 
@@ -1184,6 +1178,20 @@ export const tasksHandlers = [
   http.post('/tasks/runs/:domain/:runId/assets/:sceneId/:assetId/image', async () => {
     await delay(400)
     return HttpResponse.json({ message: 'Image uploaded', url: 'https://picsum.photos/seed/upload/640/360' })
+  }),
+
+  // ─── Tasks: regenerate asset image ───────────────────────────────────────
+
+  http.post('/tasks/runs/:domain/:runId/assets/:sceneId/:assetId/regenerate-image', async () => {
+    await delay(500)
+    return HttpResponse.json({ url: 'https://picsum.photos/seed/regenerated/640/360' })
+  }),
+
+  // ─── Tasks: (re-)animate asset ────────────────────────────────────────────
+
+  http.post('/tasks/runs/:domain/:runId/assets/:sceneId/:assetId/animate', async () => {
+    await delay(600)
+    return HttpResponse.json({ url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4' })
   }),
 
   // ─── Tasks: delete run (cancel preview) ──────────────────────────────────

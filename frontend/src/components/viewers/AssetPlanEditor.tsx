@@ -6,7 +6,7 @@ import { AutoTextarea, SaveFooter } from './ResearchEditor'
 // ─── Selector fields ──────────────────────────────────────────────────────────
 
 const FIELD_OPTIONS: Record<string, string[]> = {
-  ASSET_TYPE: ['ai_image', 'stock_video', 'editorial_video', 'photo', 'chart', 'map'],
+  ASSET_TYPE: ['ai_image', 'ai_video'],
   KEN_BURNS:  ['zoom_in', 'zoom_out', 'pan_left', 'pan_right', 'N/A'],
   PRIORITY:   ['Critical', 'Optional'],
 }
@@ -39,9 +39,12 @@ interface Props {
 
 export default function AssetPlanEditor({ scenes: initial, onSave }: Props) {
   const [scenes, setScenes] = useState<AssetScene[]>(initial)
-  const [dirty, setDirty]   = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved]   = useState(false)
+
+  // Dirty/saving/saved state is tracked per scene so each scene has its own
+  // independent Save button.
+  const [dirtyScenes, setDirtyScenes] = useState<Set<number>>(() => new Set())
+  const [savingScene, setSavingScene] = useState<number | null>(null)
+  const [savedScenes, setSavedScenes] = useState<Set<number>>(() => new Set())
 
   // Track expanded state for scenes and assets separately
   const [expandedScenes, setExpandedScenes]   = useState<Set<number>>(() => new Set([0]))
@@ -49,8 +52,9 @@ export default function AssetPlanEditor({ scenes: initial, onSave }: Props) {
 
   useEffect(() => {
     setScenes(initial)
-    setDirty(false)
-    setSaved(false)
+    setDirtyScenes(new Set())
+    setSavingScene(null)
+    setSavedScenes(new Set())
     setExpandedScenes(new Set([0]))
     setExpandedAssets(new Set())
   }, [initial])
@@ -85,18 +89,27 @@ export default function AssetPlanEditor({ scenes: initial, onSave }: Props) {
         ),
       }
     ))
-    setDirty(true)
-    setSaved(false)
+    setDirtyScenes(prev => new Set(prev).add(si))
+    setSavedScenes(prev => {
+      if (!prev.has(si)) return prev
+      const n = new Set(prev)
+      n.delete(si)
+      return n
+    })
   }
 
-  async function handleSave() {
-    setSaving(true)
+  async function handleSaveScene(si: number) {
+    setSavingScene(si)
     try {
       await onSave(scenes)
-      setDirty(false)
-      setSaved(true)
+      setDirtyScenes(prev => {
+        const n = new Set(prev)
+        n.delete(si)
+        return n
+      })
+      setSavedScenes(prev => new Set(prev).add(si))
     } finally {
-      setSaving(false)
+      setSavingScene(null)
     }
   }
 
@@ -192,15 +205,20 @@ export default function AssetPlanEditor({ scenes: initial, onSave }: Props) {
                     </div>
                   )
                 })}
+
+                <div className="pt-1">
+                  <SaveFooter
+                    dirty={dirtyScenes.has(si)}
+                    saving={savingScene === si}
+                    saved={savedScenes.has(si)}
+                    onSave={() => handleSaveScene(si)}
+                  />
+                </div>
               </div>
             )}
           </div>
         )
       })}
-
-      <div className="pt-2">
-        <SaveFooter dirty={dirty} saving={saving} saved={saved} onSave={handleSave} />
-      </div>
     </div>
   )
 }

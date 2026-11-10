@@ -96,33 +96,17 @@ def run():
 
 
        videos = sorted(scene_dir.rglob("*.mp4"))
-       images = sorted(
-           list(scene_dir.rglob("*.jpg")) +
-           list(scene_dir.rglob("*.png")) +
-           list(scene_dir.rglob("*.webp"))
-       )
 
 
-       if not videos and not images:
-           txt_files = list(scene_dir.rglob("*.txt"))
-           json_files = list(scene_dir.rglob("*.json"))
-           if txt_files or json_files:
-               out("  STATUS: Prompt exists, asset not yet generated")
-               for tf in txt_files:
-                   try:
-                       data = json.loads(tf.read_text())
-                       out(f"  PROMPT: {data.get('prompt', 'N/A')[:100]}...")
-                   except Exception:
-                       pass
-           else:
-               out("  NO ASSETS")
+       if not videos:
+           out("  NO ASSETS")
            out()
            continue
 
 
        # Group by asset folder
        asset_folders = set()
-       for f in videos + images:
+       for f in videos:
            rel = f.relative_to(scene_dir)
            asset_folders.add(rel.parts[0] if len(rel.parts) > 1 else "root")
 
@@ -135,11 +119,6 @@ def run():
 
 
            folder_videos = sorted(folder_path.glob("*.mp4"))
-           folder_images = sorted(
-               list(folder_path.glob("*.jpg")) +
-               list(folder_path.glob("*.png")) +
-               list(folder_path.glob("*.webp"))
-           )
 
 
            out(f"  {folder_name}/")
@@ -148,7 +127,7 @@ def run():
            # Categorize
            quality_groups = {}
            standalone = []
-           for f in folder_videos + folder_images:
+           for f in folder_videos:
                parts = f.stem.split("_")
                if len(parts) >= 2 and parts[0].startswith("q"):
                    prefix = parts[0]
@@ -185,7 +164,7 @@ def run():
                    f"type={f.suffix}")
 
 
-           landscape = [f for f in folder_videos + folder_images if "q1" in f.stem or "q2" in f.stem]
+           landscape = [f for f in folder_videos if "q1" in f.stem or "q2" in f.stem]
            if landscape:
                out(f"    LANDSCAPE OPTIONS: {[f.name for f in landscape[:4]]}")
 

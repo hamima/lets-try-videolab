@@ -60,10 +60,10 @@ flowchart TD
     PF -.->|load prompt for domain| S5
 
     subgraph ASSETS ["📦 Asset Track (Steps 6–9)"]
-        S6["Step 6 · Write Asset Files\nai_video / ai_image → generated.txt\nreal_image / image → search_query.txt\nmap → map_spec.json · chart → chart_spec.json"]
-        S7["Step 7 · Image Acquisition\nsearch_query.txt → fetch real image\n(Wikipedia → Wikimedia → Pexels)\ngenerated.txt → Imagen 4 → image.png"]
-        S8["Step 8 · Animation Prompt\nGemini → animated.txt per static asset"]
-        S9["Step 9 · LTX-Video Animation\nRunPod → animated.mp4 per static asset"]
+        S6["Step 6 · Write Asset Files\nai_video / ai_image → generated.txt\n+ asset_meta.json per asset (asset_type, ken_burns, intensity, duration)"]
+        S7["Step 7 · Image Acquisition\ngenerated.txt → Imagen 4 → image.png"]
+        S8["Step 8 · Animation Prompt\nai_video assets only\nGemini → animated.txt"]
+        S9["Step 9 · Video Animation\nai_video → OpenRouter/RunPod → animated.mp4\nai_image → backend/ken_burns.py (Python render) → animated.mp4"]
         S6 --> S7 --> S8 --> S9
     end
 
@@ -116,7 +116,9 @@ flowchart TD
 
 ## Goals
 
-Replace all manual steps in `pipeline.py` with a single automated script `automate.py`. The script calls Gemini 2.5 Pro for all LLM and creative tasks, ElevenLabs v3 for narration and music, Imagen 4 for AI image generation, Wikipedia/Wikimedia/Pexels for real-world images, and RunPod (LTX-Video) for video animation. Steps 14, 15, and 17 call external scripts via subprocess.
+Replace all manual steps in `pipeline.py` with a single automated script `automate.py`. The script calls Gemini 2.5 Pro for all LLM and creative tasks, ElevenLabs v3 for narration and music, Imagen 4 for AI image generation, and RunPod (LTX-Video) for video animation. Steps 14, 15, and 17 call external scripts via subprocess.
+
+Total video duration and video/image composition are **user-configurable inputs**, not a purely emergent side effect of Step 3's scene count. `GeneratePage.tsx`'s duration-range and video/image-split sliders are sent as a `video_config` object (`duration_min_minutes`, `duration_max_minutes`, `video_split_percent`) on `POST /tasks/runs`, persisted into the run's `pipeline_state.json`, and injected into Step 3's and Step 4's prompts — see `docs/llm-steps.md`. `video_split_percent` controls what fraction of total narration time is assigned to `ai_video` (AI-animated) assets at Step 4; everything else is `ai_image`, rendered with Python zoom/pan (Ken Burns) rather than an AI video call.
 
 ## Key Decisions
 
@@ -124,10 +126,11 @@ Replace all manual steps in `pipeline.py` with a single automated script `automa
 |---------|----------|
 | LLM | `gemini-2.5-pro`; falls back to `gemini-2.0-flash` on 429 quota errors |
 | Image gen | Imagen 4 (`imagen-4.0-generate-001`) for `ai_video` / `ai_image` assets (step 7) |
-| Real-world images | `real_image` / `image` types → fetched in step 7 via Wikipedia → Wikimedia Commons → Pexels fallback |
-| Asset types | `ai_video`, `ai_image`, `real_image`, `image`, `map`, `chart` — defined in step 5 prompt |
-| Step 6 | Writes text/spec files only (`generated.txt`, `search_query.txt`, `map_spec.json`, `chart_spec.json`) — no network calls |
-| Step 7 | Two passes: web-fetch pass (`search_query.txt` → `image.jpg`), then Imagen pass (`generated.txt` → `image.png`) |
+| Asset types | `ai_video`, `ai_image` — defined in step 5 prompt. `ai_video` is animated by an AI video model from a free-form motion prompt; `ai_image` is animated in Python via Ken Burns zoom/pan (`backend/ken_burns.py`) |
+| Step 6 | Writes `generated.txt` plus `asset_meta.json` for every asset — no network calls |
+| Step 7 | Imagen pass only: `generated.txt` → `image.png` |
+| Step 8 | `ai_video`-only — generates `animated.txt` (motion prompt) for each `ai_video` asset; `ai_image` assets skip step 8 entirely since their motion is already fully specified by `asset_meta.json`'s `ken_burns`/`intensity` fields |
+| Step 9 | Branches per asset by `asset_meta.json`'s `asset_type`: `ai_video` → OpenRouter/RunPod AI animation; `ai_image` → `backend/ken_burns.py`'s `render_ken_burns()`, a pure-Python MoviePy zoom/pan render |
 | TTS & Music | ElevenLabs model v3 |
 | Voice | Domain chosen upfront → maps to `DOMAIN_VOICE_MAP` |
 | Domains | Interactive menu at startup: `political`, `general_knowledge`, `science`, `business`, `history`, `sports`, `technology`, `general` |
@@ -150,11 +153,11 @@ Replace all manual steps in `pipeline.py` with a single automated script `automa
 3   → run_gemini_step()           # scene_plan.md
 4   → run_gemini_step()           # asset_manifest.md
 5   → run_gemini_step()           # asset_acquisition.md
-6   → run_fetch_assets()          # generated.txt / search_query.txt / map_spec.json / chart_spec.json
-7   → run_imagen_generation()     # pass 1: search_query.txt → image.jpg (Wikipedia/Wikimedia/Pexels)
-                                  # pass 2: generated.txt → image.png (Imagen 4)
-8   → run_animation_prompt_step() # animated.txt per static asset (Gemini, uses 08_animation_prompt.md)
-9   → run_runpod_animation()      # animated.mp4 per static asset (LTX-Video on RunPod)
+6   → run_fetch_assets()          # generated.txt
+7   → run_imagen_generation()     # generated.txt → image.png (Imagen 4)
+8   → run_animation_prompt_step() # animated.txt per ai_video asset only (Gemini, uses 08_animation_prompt.md)
+9   → run_runpod_animation()      # animated.mp4 per asset — ai_video via OpenRouter/RunPod,
+                                  # ai_image via backend/ken_burns.py (Python zoom/pan)
 10  → run_gemini_step()           # narration_script.txt  [uses 10_narration.md]
 11  → run_elevenlabs_tts()        # narration.mp3
 12  → run_gemini_step()           # music_prompt.txt  [uses 12_music.md]

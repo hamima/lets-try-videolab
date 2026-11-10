@@ -83,13 +83,6 @@ DOMAIN_VOICE_MAP = {
 
 SUPPORTED_DOMAINS = list(DOMAIN_VOICE_MAP.keys())
 
-BURN_KEY_PREFIXES = {
-    "zoom_in":   "slow push in,",
-    "zoom_out":  "slow pull back,",
-    "pan_left":  "camera pan left,",
-    "pan_right": "camera pan right,",
-}
-
 
 # ─────────────────────────────────────────────────────────────
 # Step definitions
@@ -102,9 +95,9 @@ STEPS = [
     {"id": "4",  "name": "Asset Manifest",                "type": "gemini",           "inputs": {"scene_plan": "scene_plan.md"},                                 "output": "asset_manifest.md"},
     {"id": "5",  "name": "Asset Acquisition Instructions","type": "gemini",           "inputs": {"asset_manifest": "asset_manifest.md"},                         "output": "asset_acquisition.md"},
     {"id": "6",  "name": "Fetch Assets",                  "type": "fetch_assets",     "output": "assets/"},
-    {"id": "7",  "name": "AI Image Generation",           "type": "imagen",           "output": "assets/"},
+    {"id": "7",  "name": "AI Asset Generation",            "type": "imagen",           "output": "assets/", "output_marker": "image.*"},
     {"id": "8",  "name": "Animation Prompt",              "type": "animation_prompt", "output": "assets/", "output_marker": "animated.txt"},
-    {"id": "9",  "name": "Video Animation",               "type": "runpod_animation", "output": "assets/", "output_marker": "animated.mp4"},
+    {"id": "9",  "name": "Video Animation",               "type": "video_animation",  "output": "assets/", "output_marker": "animated.mp4"},
     {"id": "10", "name": "Narration Script",              "type": "gemini",           "inputs": {"story_script": "story_script.md"},                             "output": "narration_script.txt", "prompt_file": "10_narration.md"},
     {"id": "11", "name": "Narration Audio",               "type": "tts",              "output": "narration.mp3"},
     {"id": "12", "name": "Music Prompt",                  "type": "gemini",           "inputs": {"scene_plan": "scene_plan.md"},                                 "output": "music_prompt.txt"},
@@ -182,6 +175,11 @@ def find_workspace(domain: str, run_id: str) -> Path:
     if not ws.exists() or not ws.is_dir():
         raise RuntimeError(f"No workspace found for run_id '{run_id}' in domain '{domain}'")
     return ws
+
+
+def _natural_key(path: Path) -> list:
+    """Sort key that orders scene_2 before scene_10 (natural/numeric sort)."""
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", str(path))]
 
 
 def load_state(ws: Path) -> dict:
@@ -300,10 +298,21 @@ def _run_gemini_step(step: dict, ws: Path, state: dict) -> None:
         video_config = state.get("video_config") or {}
         duration_min = video_config.get("duration_min_minutes", 2)
         duration_max = video_config.get("duration_max_minutes", 30)
-        video_split_percent = video_config.get("video_split_percent", 25)
         duration_range = f"between {duration_min} and {duration_max} minutes"
         prompt = prompt.replace("{{duration_range}}", duration_range)
-        prompt = prompt.replace("{{video_split_percent}}", str(video_split_percent))
+
+    if step["id"] == "4":
+        scene_plan_path = ws / "scene_plan.md"
+        total_seconds = 0
+        if scene_plan_path.exists():
+            for scene in _parse_scene_plan(scene_plan_path.read_text()):
+                for beat in scene.get("beats", []):
+                    total_seconds += _duration_to_seconds(beat.get("duration", ""))
+        video_config = state.get("video_config") or {}
+        video_split_percent = video_config.get("video_split_percent", 25)
+        target_ai_video_seconds = round(total_seconds * video_split_percent / 100)
+        prompt = prompt.replace("{{total_duration_seconds}}", str(total_seconds))
+        prompt = prompt.replace("{{target_ai_video_seconds}}", str(target_ai_video_seconds))
 
     text = _gemini_generate(prompt)
 
@@ -391,125 +400,29 @@ def _run_fetch_assets(step: dict, ws: Path, state: dict) -> None:
             if mock:
                 generate_placeholder_image(out_dir / "image.png")
 
-        elif atype in ("real_image", "image"):
-            query = (
-                a.get("search_query", "").strip()
-                if atype == "real_image"
-                else (a.get("search_variations", "").strip().splitlines() or [""])[0]
-                     .strip().lstrip("0123456789. ").strip("\"'")
-            )
-            if query and query.upper() != "N/A":
-                (out_dir / "search_query.txt").write_text(query)
-            if mock:
-                generate_placeholder_image(out_dir / "image.jpg")
+        intensity_raw = a.get("intensity", "").strip()
+        try:
+            intensity = float(intensity_raw)
+            if not (0.1 <= intensity <= 0.3):
+                intensity = 0.2
+        except ValueError:
+            intensity = 0.2
 
-        elif atype == "map":
-            spec = a.get("map_spec", "").strip()
-            if spec and spec.upper() != "N/A":
-                (out_dir / "map_spec.json").write_text(spec)
-            if mock:
-                generate_placeholder_image(out_dir / "image.png")
+        ken_burns = a.get("ken_burns", "").strip().lower()
+        if ken_burns not in ("zoom_in", "zoom_out", "pan_left", "pan_right"):
+            ken_burns = "zoom_in"
 
-        elif atype == "chart":
-            spec = a.get("chart_spec", "").strip()
-            if spec and spec.upper() != "N/A":
-                (out_dir / "chart_spec.json").write_text(spec)
-            if mock:
-                generate_placeholder_image(out_dir / "image.png")
+        (out_dir / "asset_meta.json").write_text(json.dumps({
+            "asset_type": atype,
+            "ken_burns": None if atype == "ai_video" else ken_burns,
+            "intensity": None if atype == "ai_video" else intensity,
+            "duration": a.get("duration", "5 seconds"),
+        }, indent=2))
 
         if mock:
-            (out_dir / "animated.txt").write_text(animation_template)
-            (out_dir / "asset_meta.json").write_text(
-                json.dumps({"ken_burns": "zoom_in", "duration": "5 seconds"}, indent=2)
-            )
+            if atype == "ai_video":
+                (out_dir / "animated.txt").write_text(animation_template)
             generate_placeholder_video(out_dir / "animated.mp4", duration_seconds=5.0)
-
-
-def _save_if_valid(img_url: str, out_img: Path) -> bool:
-    import requests
-    headers = {"User-Agent": "VidLifePipeline/1.0"}
-    resp = requests.get(img_url, headers=headers, timeout=60)
-    resp.raise_for_status()
-    data = resp.content
-    if not data:
-        return False
-    ct = resp.headers.get("Content-Type", "")
-    if "html" in ct or "svg" in ct:
-        return False
-    if not (data[:3] == b'\xff\xd8\xff' or data[:4] == b'\x89PNG'):
-        return False
-    out_img.write_bytes(data)
-    return True
-
-
-def _fetch_real_image(query: str, out_dir: Path) -> bool:
-    if MOCK_AI():
-        from mocks.generators import generate_placeholder_image
-        generate_placeholder_image(out_dir / "image.jpg")
-        return True
-
-    import requests
-    headers = {"User-Agent": "VidLifePipeline/1.0"}
-    out_img = out_dir / "image.jpg"
-
-    # 1. Wikipedia
-    try:
-        r = requests.get(
-            "https://en.wikipedia.org/w/api.php",
-            params={"action": "query", "titles": query, "prop": "pageimages",
-                    "format": "json", "pithumbsize": 1200, "pilicense": "any"},
-            headers=headers, timeout=30,
-        )
-        r.raise_for_status()
-        for page in r.json().get("query", {}).get("pages", {}).values():
-            img_url = page.get("thumbnail", {}).get("source")
-            if img_url and _save_if_valid(img_url, out_img):
-                return True
-    except Exception:
-        pass
-
-    time.sleep(1)
-
-    # 2. Wikimedia Commons
-    try:
-        r = requests.get(
-            "https://commons.wikimedia.org/w/api.php",
-            params={"action": "query", "list": "search", "srsearch": query,
-                    "srnamespace": "6", "srlimit": "5", "format": "json"},
-            headers=headers, timeout=30,
-        )
-        r.raise_for_status()
-        for result in r.json().get("query", {}).get("search", []):
-            time.sleep(0.5)
-            fr = requests.get(
-                "https://commons.wikimedia.org/w/api.php",
-                params={"action": "query", "titles": result["title"], "prop": "imageinfo",
-                        "iiprop": "url", "iiurlwidth": 1200, "format": "json"},
-                headers=headers, timeout=30,
-            )
-            fr.raise_for_status()
-            for fp in fr.json().get("query", {}).get("pages", {}).values():
-                info = (fp.get("imageinfo") or [{}])[0]
-                img_url = info.get("thumburl") or info.get("url")
-                if img_url and _save_if_valid(img_url, out_img):
-                    return True
-    except Exception:
-        pass
-
-    # 3. Pexels fallback
-    try:
-        r = requests.get(
-            f"https://api.pexels.com/v1/search?query={query}&per_page=1",
-            headers={"Authorization": PEXELS_API_KEY()}, timeout=30,
-        )
-        r.raise_for_status()
-        photos = r.json().get("photos", [])
-        if photos and _save_if_valid(photos[0]["src"]["large"], out_img):
-            return True
-    except Exception:
-        pass
-
-    return False
 
 
 def _run_imagen_generation(step: dict, ws: Path, state: dict, clean: bool = False) -> None:
@@ -519,10 +432,6 @@ def _run_imagen_generation(step: dict, ws: Path, state: dict, clean: bool = Fals
         assets_dir = ws / "assets"
         if not assets_dir.exists():
             return
-        for sq_file in sorted(assets_dir.rglob("search_query.txt")):
-            out_img = sq_file.parent / "image.jpg"
-            if not out_img.exists():
-                generate_placeholder_image(out_img)
         for txt_file in sorted(assets_dir.rglob("generated.txt")):
             out_img = txt_file.parent / "image.png"
             if not out_img.exists():
@@ -534,18 +443,10 @@ def _run_imagen_generation(step: dict, ws: Path, state: dict, clean: bool = Fals
         return
 
     if clean:
-        for pattern in ("image.png", "image.jpg", "blocked.txt"):
+        for pattern in ("image.png", "blocked.txt"):
             for f in assets_dir.rglob(pattern):
                 f.unlink()
 
-    # Web-fetch pass
-    for sq_file in sorted(assets_dir.rglob("search_query.txt")):
-        out_img = sq_file.parent / "image.jpg"
-        if out_img.exists():
-            continue
-        _fetch_real_image(sq_file.read_text().strip(), sq_file.parent)
-
-    # Imagen pass
     generated_txts = sorted(assets_dir.rglob("generated.txt"))
     if not generated_txts:
         return
@@ -606,8 +507,7 @@ def _parse_asset_manifest(text: str) -> dict:
             continue
         scene = asset = None
         asset = "1"
-        ken_burns = visual_goal = duration = ""
-        animate = "yes"
+        visual_goal = duration = ""
         for line in block.splitlines():
             s = line.strip()
             if s.upper().startswith("SCENE "):
@@ -617,20 +517,14 @@ def _parse_asset_manifest(text: str) -> dict:
                     asset = parts[1].strip().split()[-1]
             elif s.upper().startswith("ASSET "):
                 asset = s.split()[-1]
-            elif s.upper().startswith("KEN_BURNS:"):
-                ken_burns = s.split(":", 1)[1].strip().lower()
             elif s.upper().startswith("VISUAL_GOAL:"):
                 visual_goal = s.split(":", 1)[1].strip()
             elif s.upper().startswith("DURATION:"):
                 duration = s.split(":", 1)[1].strip()
-            elif s.upper().startswith("ANIMATE:"):
-                animate = s.split(":", 1)[1].strip().lower()
         if scene:
             manifest[(scene, asset)] = {
-                "ken_burns": ken_burns,
                 "visual_goal": visual_goal,
                 "duration": duration,
-                "animate": animate,
             }
     return manifest
 
@@ -641,14 +535,13 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict, clean: bool = 
         if not assets_dir.exists():
             return
         template = _load_fixture("8")
-        for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
-            for asset_file in sorted(assets_dir.rglob(candidate)):
-                out_txt = asset_file.parent / "animated.txt"
-                if not out_txt.exists():
-                    out_txt.write_text(template)
-                meta_path = asset_file.parent / "asset_meta.json"
-                if not meta_path.exists():
-                    meta_path.write_text(json.dumps({"ken_burns": "zoom_in", "duration": "5 seconds"}, indent=2))
+        for meta_path in sorted(assets_dir.rglob("asset_meta.json")):
+            meta = json.loads(meta_path.read_text())
+            if meta.get("asset_type") != "ai_video":
+                continue
+            out_txt = meta_path.parent / "animated.txt"
+            if not out_txt.exists():
+                out_txt.write_text(template)
         return
 
     domain = state["domain"]
@@ -669,20 +562,21 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict, clean: bool = 
             for f in assets_dir.rglob(pattern):
                 f.unlink()
 
-    static_files = []
-    for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
-        static_files.extend(sorted(assets_dir.rglob(candidate)))
+    for meta_path in sorted(assets_dir.rglob("asset_meta.json")):
+        meta = json.loads(meta_path.read_text())
+        if meta.get("asset_type") != "ai_video":
+            continue
 
-    for asset_file in static_files:
-        out_txt = asset_file.parent / "animated.txt"
+        asset_dir = meta_path.parent
+        out_txt = asset_dir / "animated.txt"
         if out_txt.exists():
             continue
 
-        blocked_marker = asset_file.parent / "animation_blocked.txt"
+        blocked_marker = asset_dir / "animation_blocked.txt"
         if blocked_marker.exists():
             continue
 
-        parts = asset_file.parent.parts
+        parts = asset_dir.parts
         scene_n = asset_n = "1"
         for p in parts:
             if p.startswith("scene_"):
@@ -690,23 +584,21 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict, clean: bool = 
             elif p.startswith("asset_"):
                 asset_n = p.split("_", 1)[1]
 
-        meta = manifest.get((scene_n, asset_n), {})
-        ken_burns  = meta.get("ken_burns", "zoom_in")
-        visual_goal = meta.get("visual_goal", "")
-        duration   = meta.get("duration", "")
-        animate    = meta.get("animate", "yes")
+        manifest_entry = manifest.get((scene_n, asset_n), {})
+        visual_goal = manifest_entry.get("visual_goal", "")
+        duration    = meta.get("duration", "")
 
-        if animate == "no":
+        image_prompt_path = asset_dir / "generated.txt"
+        image_prompt = image_prompt_path.read_text().strip() if image_prompt_path.exists() else ""
+        if not image_prompt:
+            blocked_marker.write_text("No generated.txt (image prompt) found — cannot ground animation in the actual image")
             continue
-
-        name_to_type = {"image.png": "ai_image", "image.jpg": "real_image", "map.png": "map", "chart.png": "chart"}
-        asset_type = name_to_type.get(asset_file.name, "image")
 
         prompt = (
             prompt_template
-            .replace("{{ken_burns}}", ken_burns)
+            .replace("{{image_prompt}}", image_prompt)
             .replace("{{visual_goal}}", visual_goal)
-            .replace("{{asset_type}}", asset_type)
+            .replace("{{asset_type}}", "ai_video")
             .replace("{{story_excerpt}}", story_excerpt)
             .replace("{{duration}}", duration)
         )
@@ -718,62 +610,76 @@ def _run_animation_prompt_step(step: dict, ws: Path, state: dict, clean: bool = 
             continue
         out_txt.write_text(text.strip())
 
-        meta_path = asset_file.parent / "asset_meta.json"
-        if not meta_path.exists():
-            meta_path.write_text(json.dumps({"ken_burns": ken_burns, "duration": duration}, indent=2))
-
 
 def _duration_to_seconds(duration_str: str) -> int:
     match = re.search(r"(\d+(?:\.\d+)?)", duration_str or "5")
     return max(1, int(float(match.group(1)) if match else 5.0))
 
 
-def _resolve_animation_inputs(txt_file: Path) -> Optional[tuple]:
-    """Return (static_asset, final_prompt, duration_seconds) for an animated.txt
-    file, or None if no static asset is found."""
+def _resolve_animation_inputs(asset_dir: Path) -> Optional[tuple]:
+    """Return (static_asset, final_prompt, duration_seconds) for an ai_video
+    asset's animated.txt, or None if no static asset is found."""
     static_asset = None
-    for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
-        p = txt_file.parent / candidate
-        if p.exists():
-            static_asset = p
-            break
+    p = asset_dir / "image.png"
+    if p.exists():
+        static_asset = p
 
     if static_asset is None:
         return None
 
-    animation_prompt = txt_file.read_text().strip()
-    meta_path = txt_file.parent / "asset_meta.json"
-    ken_burns = "zoom_in"
-    duration  = "5 seconds"
+    txt_file = asset_dir / "animated.txt"
+    final_prompt = txt_file.read_text().strip()
+    meta_path = asset_dir / "asset_meta.json"
+    duration = "5 seconds"
     if meta_path.exists():
         meta = json.loads(meta_path.read_text())
-        ken_burns = meta.get("ken_burns", ken_burns)
-        duration  = meta.get("duration", duration)
+        duration = meta.get("duration", duration)
 
-    motion_prefix = BURN_KEY_PREFIXES.get(ken_burns, "")
-    final_prompt = f"{motion_prefix} {animation_prompt}".strip() if motion_prefix else animation_prompt
     duration_seconds = _duration_to_seconds(duration)
 
     return static_asset, final_prompt, duration_seconds
 
 
-def _animate_single_asset(txt_file: Path) -> Path:
-    """Animate a single asset from its animated.txt prompt file.
+def _animate_single_asset(asset_dir: Path) -> Path:
+    """Animate a single asset directory, branching by its asset_meta.json's
+    asset_type.
+
+    - ai_video: resolve animated.txt + asset_meta.json, call OpenRouter/RunPod.
+    - ai_image: render a Ken-Burns clip in Python from the static base file.
 
     Returns the path to the written animated.mp4. Raises on failure (no static
     asset found, missing config, or backend error) — callers that want
     best-effort batch behavior should catch exceptions themselves.
     """
-    out_mp4 = txt_file.parent / "animated.mp4"
+    out_mp4 = asset_dir / "animated.mp4"
 
     if MOCK_AI():
         from mocks.generators import generate_placeholder_video
         generate_placeholder_video(out_mp4, duration_seconds=5.0)
         return out_mp4
 
-    resolved = _resolve_animation_inputs(txt_file)
+    meta_path = asset_dir / "asset_meta.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    asset_type = meta.get("asset_type")
+
+    if asset_type != "ai_video":
+        static_asset = asset_dir / "image.png"
+        if not static_asset.exists():
+            raise RuntimeError("No static asset (image.png) found for Ken-Burns render")
+
+        from ken_burns import render_ken_burns
+
+        direction = meta.get("ken_burns") or "zoom_in"
+        intensity = meta.get("intensity")
+        if intensity is None:
+            intensity = 0.2
+        duration_seconds = _duration_to_seconds(meta.get("duration", "5 seconds"))
+        render_ken_burns(static_asset, out_mp4, direction, intensity, duration_seconds)
+        return out_mp4
+
+    resolved = _resolve_animation_inputs(asset_dir)
     if resolved is None:
-        raise RuntimeError("No static asset (image/map/chart) found for this animation prompt")
+        raise RuntimeError("No static asset (image.png) found for this animation prompt")
     static_asset, final_prompt, duration_seconds = resolved
 
     if USE_OPENROUTER():
@@ -822,19 +728,27 @@ def _animate_single_asset(txt_file: Path) -> Path:
     return out_mp4
 
 
-def _run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
+def _run_video_animation(step: dict, ws: Path, state: dict) -> None:
     assets_dir = ws / "assets"
     if not assets_dir.exists():
         return
 
-    for txt_file in sorted(assets_dir.rglob("animated.txt")):
-        out_mp4 = txt_file.parent / "animated.mp4"
-        if out_mp4.exists():
-            continue
+    meta_files = sorted(assets_dir.rglob("asset_meta.json"))
+    pending = [f for f in meta_files if not (f.parent / "animated.mp4").exists()]
+    print(f"[tasks] Step 9: animating {len(pending)}/{len(meta_files)} asset(s)", flush=True)
+
+    for i, meta_file in enumerate(pending, start=1):
+        asset_dir = meta_file.parent
+        label = asset_dir.relative_to(assets_dir)
+        print(f"[tasks] Step 9 ({i}/{len(pending)}): animating {label} ...", flush=True)
         try:
-            _animate_single_asset(txt_file)
-        except Exception:
+            _animate_single_asset(asset_dir)
+            print(f"[tasks] Step 9 ({i}/{len(pending)}): {label} done", flush=True)
+        except Exception as exc:
+            print(f"[tasks] Step 9 ({i}/{len(pending)}): {label} failed: {exc}", flush=True)
             continue
+
+    print("[tasks] Step 9: finished", flush=True)
 
 
 def _run_elevenlabs_tts(step: dict, ws: Path, state: dict) -> None:
@@ -934,6 +848,65 @@ def _output_exists(step: dict, ws: Path) -> bool:
     return (ws / out).exists()
 
 
+def _changed_asset_keys(before: list, after: list) -> set:
+    """Return the set of (scene_id, asset_id) pairs whose fields differ between
+    two asset-manifest/asset-acquisition scene lists (or that only exist in one)."""
+    def index(scenes: list) -> dict:
+        out = {}
+        for scene in scenes:
+            for asset in scene.get("assets", []):
+                out[(scene["id"], asset["id"])] = asset.get("fields", [])
+        return out
+
+    before_idx, after_idx = index(before), index(after)
+    changed = set()
+    for key in before_idx.keys() | after_idx.keys():
+        if before_idx.get(key) != after_idx.get(key):
+            changed.add(key)
+    return changed
+
+
+def _regenerate_asset_acquisition_for(keys: set, ws: Path, domain: str) -> None:
+    """Re-run step 5's prompt for only the given (scene_id, asset_id) assets, and
+    splice the results back into the existing asset_acquisition.md in place —
+    everything else in the file is left untouched.
+    """
+    manifest_path = ws / "asset_manifest.md"
+    acquisition_path = ws / "asset_acquisition.md"
+    if not manifest_path.exists() or not acquisition_path.exists():
+        return
+
+    manifest_scenes = _parse_asset_manifest_scenes(manifest_path.read_text())
+    acquisition_scenes = _parse_asset_acquisition(acquisition_path.read_text())
+
+    affected_manifest = [
+        {"id": scene["id"], "assets": [a for a in scene.get("assets", []) if (scene["id"], a["id"]) in keys]}
+        for scene in manifest_scenes
+    ]
+    affected_manifest = [s for s in affected_manifest if s["assets"]]
+    if not affected_manifest:
+        return
+
+    if MOCK_AI():
+        text = _load_fixture("5")
+    else:
+        prompt_path = resolve_prompt_file("5", domain)
+        prompt = prompt_path.read_text().replace("{{asset_manifest}}", _serialize_asset_manifest(affected_manifest))
+        text = _gemini_generate(prompt)
+
+    regenerated = {(s["id"], a["id"]): a for s in _parse_asset_acquisition(text) for a in s.get("assets", [])}
+
+    for scene in acquisition_scenes:
+        scene["assets"] = [
+            regenerated.get((scene["id"], a["id"]), a) for a in scene.get("assets", [])
+        ]
+        for key, asset in regenerated.items():
+            if key[0] == scene["id"] and not any(a["id"] == key[1] for a in scene["assets"]):
+                scene["assets"].append(asset)
+
+    acquisition_path.write_text(_serialize_asset_acquisition(acquisition_scenes))
+
+
 def _dispatch(step: dict, ws: Path, state: dict, clean: bool = False) -> None:
     t = step["type"]
     if t == "gemini":
@@ -942,8 +915,8 @@ def _dispatch(step: dict, ws: Path, state: dict, clean: bool = False) -> None:
         _run_imagen_generation(step, ws, state, clean)
     elif t == "animation_prompt":
         _run_animation_prompt_step(step, ws, state, clean)
-    elif t == "runpod_animation":
-        _run_runpod_animation(step, ws, state)
+    elif t == "video_animation":
+        _run_video_animation(step, ws, state)
     elif t == "tts":
         _run_elevenlabs_tts(step, ws, state)
     elif t == "music":
@@ -1404,7 +1377,7 @@ def _parse_beats(scene_text: str) -> list:
 
     for line in scene_text.splitlines():
         t = _strip_label_bold(line.strip())
-        m = re.match(r'^(Narration|Duration|Purpose|Emotion|Animate):\s*(.*)$', t, re.IGNORECASE)
+        m = re.match(r'^(Narration|Duration|Purpose|Emotion):\s*(.*)$', t, re.IGNORECASE)
         if m:
             key = m.group(1).lower()
             inline = m.group(2).strip()
@@ -1465,7 +1438,6 @@ def _serialize_scene_plan(scenes: list) -> str:
                 "Duration:",  beat.get("duration", ""),
                 "Purpose:",   purpose_field,
                 "Emotion:",   beat.get("emotion", ""),
-                "Animate:",   beat.get("animate", ""),
                 "",
             ]
         parts.append("\n".join(lines))
@@ -1741,34 +1713,42 @@ def get_step_content(domain: str, run_id: str, step_id: str):
         images = []
         seen_dirs: set = set()
         if assets_dir.exists():
-            for pat in ("image.png", "image.jpg"):
-                for f in sorted(assets_dir.rglob(pat)):
-                    if f.parent in seen_dirs:
-                        continue
-                    seen_dirs.add(f.parent)
-                    rel = str(f.relative_to(ws))
-                    parts = f.parent.parts
-                    scene_id = asset_id = ""
-                    for p in parts:
-                        if p.startswith("scene_"):
-                            scene_id = p[len("scene_"):]
-                        elif p.startswith("asset_"):
-                            asset_id = p[len("asset_"):]
-                    images.append({
-                        "path": rel,
-                        "url": f"/tasks/files/{domain}/{run_id}/{rel}",
-                        "label": str(f.parent.relative_to(assets_dir)),
-                        "scene_id": scene_id,
-                        "asset_id": asset_id,
-                        "filename": f.name,
-                    })
+            all_images = list(assets_dir.rglob("image.png"))
+            for f in sorted(all_images, key=_natural_key):
+                if f.parent in seen_dirs:
+                    continue
+                seen_dirs.add(f.parent)
+                rel = str(f.relative_to(ws))
+                parts = f.parent.parts
+                scene_id = asset_id = ""
+                for p in parts:
+                    if p.startswith("scene_"):
+                        scene_id = p[len("scene_"):]
+                    elif p.startswith("asset_"):
+                        asset_id = p[len("asset_"):]
+                prompt = ""
+                pp = f.parent / "generated.txt"
+                if pp.exists():
+                    prompt = pp.read_text().strip()
+                meta_path = f.parent / "asset_meta.json"
+                meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+                images.append({
+                    "path": rel,
+                    "url": f"/tasks/files/{domain}/{run_id}/{rel}",
+                    "label": str(f.parent.relative_to(assets_dir)),
+                    "scene_id": scene_id,
+                    "asset_id": asset_id,
+                    "filename": f.name,
+                    "prompt": prompt,
+                    "asset_type": meta.get("asset_type"),
+                })
         return {"kind": kind, "images": images}
 
     if kind == "animation_list":
         assets_dir = ws / "assets"
         items = []
         if assets_dir.exists():
-            for f in sorted(assets_dir.rglob("animated.txt")):
+            for f in sorted(assets_dir.rglob("animated.txt"), key=_natural_key):
                 rel = str(f.relative_to(ws))
                 parts = f.parent.parts
                 scene_id = asset_id = ""
@@ -1779,11 +1759,9 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                         asset_id = p[len("asset_"):]
 
                 image_url = None
-                for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
-                    ip = f.parent / candidate
-                    if ip.exists():
-                        image_url = f"/tasks/files/{domain}/{run_id}/{ip.relative_to(ws)}"
-                        break
+                ip = f.parent / "image.png"
+                if ip.exists():
+                    image_url = f"/tasks/files/{domain}/{run_id}/{ip.relative_to(ws)}"
 
                 items.append({
                     "path": rel,
@@ -1799,8 +1777,9 @@ def get_step_content(domain: str, run_id: str, step_id: str):
         assets_dir = ws / "assets"
         videos = []
         if assets_dir.exists():
-            for txt_file in sorted(assets_dir.rglob("animated.txt")):
-                asset_dir = txt_file.parent
+            for meta_file in sorted(assets_dir.rglob("asset_meta.json"), key=_natural_key):
+                asset_dir = meta_file.parent
+                meta = json.loads(meta_file.read_text())
                 parts = asset_dir.parts
                 scene_id = asset_id = ""
                 for p in parts:
@@ -1810,12 +1789,10 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                         asset_id = p[len("asset_"):]
 
                 thumbnail_url = None
-                for candidate in ("image.png", "image.jpg", "map.png", "chart.png"):
-                    cp = asset_dir / candidate
-                    if cp.exists():
-                        rel = str(cp.relative_to(ws))
-                        thumbnail_url = f"/tasks/files/{domain}/{run_id}/{rel}"
-                        break
+                cp = asset_dir / "image.png"
+                if cp.exists():
+                    rel = str(cp.relative_to(ws))
+                    thumbnail_url = f"/tasks/files/{domain}/{run_id}/{rel}"
 
                 mp4 = asset_dir / "animated.mp4"
                 video_url = None
@@ -1823,14 +1800,21 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                     rel = str(mp4.relative_to(ws))
                     video_url = f"/tasks/files/{domain}/{run_id}/{rel}"
 
+                txt_file = asset_dir / "animated.txt"
+                prompt = txt_file.read_text().strip() if txt_file.exists() else ""
+
                 videos.append({
                     "scene_id": scene_id,
                     "asset_id": asset_id,
                     "label": str(asset_dir.relative_to(assets_dir)),
                     "thumbnail_url": thumbnail_url,
-                    "prompt": txt_file.read_text().strip(),
+                    "prompt": prompt,
                     "video_url": video_url,
                     "status": "done" if video_url else "pending",
+                    "asset_type": meta.get("asset_type"),
+                    "ken_burns": meta.get("ken_burns"),
+                    "intensity": meta.get("intensity"),
+                    "duration": meta.get("duration"),
                 })
         return {"kind": kind, "videos": videos}
 
@@ -1839,21 +1823,17 @@ def get_step_content(domain: str, run_id: str, step_id: str):
         # Ordered file label map — image first, then text files
         FILE_LABELS = {
             "image.png":       ("image", "Image"),
-            "image.jpg":       ("image", "Image"),
             "generated.txt":   ("text",  "AI Prompt"),
-            "search_query.txt":("text",  "Search Query"),
             "animated.txt":    ("text",  "Animation Prompt"),
-            "map_spec.json":   ("text",  "Map Spec"),
-            "chart_spec.json": ("text",  "Chart Spec"),
         }
         scenes_out = []
         if assets_dir.exists():
-            for scene_dir in sorted(assets_dir.iterdir()):
+            for scene_dir in sorted(assets_dir.iterdir(), key=_natural_key):
                 if not scene_dir.is_dir() or not scene_dir.name.startswith("scene_"):
                     continue
                 scene_id = scene_dir.name[len("scene_"):]
                 assets_out = []
-                for asset_dir in sorted(scene_dir.iterdir()):
+                for asset_dir in sorted(scene_dir.iterdir(), key=_natural_key):
                     if not asset_dir.is_dir() or not asset_dir.name.startswith("asset_"):
                         continue
                     asset_id = asset_dir.name[len("asset_"):]
@@ -1896,6 +1876,14 @@ def update_step_content(domain: str, run_id: str, step_id: str, body: UpdateStep
     fp = ws / cfg["file"]
     fp.parent.mkdir(parents=True, exist_ok=True)
 
+    # Diff against the previous asset_manifest so, if it's edited, we can
+    # surgically regenerate only the asset_acquisition entries for the assets
+    # that actually changed — not the whole of step 5.
+    changed_keys = None
+    if cfg["kind"] == "asset_manifest" and body.asset_scenes is not None:
+        before = _parse_asset_manifest_scenes(fp.read_text()) if fp.exists() else []
+        changed_keys = _changed_asset_keys(before, body.asset_scenes)
+
     if body.sections is not None:
         fp.write_text(_serialize_sections(body.sections))
     elif body.scenes is not None:
@@ -1909,6 +1897,9 @@ def update_step_content(domain: str, run_id: str, step_id: str, body: UpdateStep
         fp.write_text(body.content)
     else:
         raise HTTPException(status_code=400, detail="No content provided")
+
+    if changed_keys:
+        _regenerate_asset_acquisition_for(changed_keys, ws, domain)
 
     return {"run_id": run_id, "step_id": step_id, "message": "Content updated"}
 
@@ -1927,7 +1918,7 @@ def save_asset_files(domain: str, run_id: str, scene_id: str, asset_id: str, bod
     if not asset_dir.exists():
         raise HTTPException(status_code=404, detail=f"Asset directory not found: {asset_dir.name}")
 
-    ALLOWED_TEXT_FILES = {"generated.txt", "search_query.txt", "animated.txt", "map_spec.json", "chart_spec.json"}
+    ALLOWED_TEXT_FILES = {"generated.txt", "animated.txt"}
     for item in body.files:
         fname = item["filename"]
         if fname not in ALLOWED_TEXT_FILES:
@@ -1965,7 +1956,7 @@ async def upload_asset_image(domain: str, run_id: str, scene_id: str, asset_id: 
 
 @router.post("/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/regenerate-image")
 def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: str):
-    """Delete the current image for an asset and regenerate it (Imagen or web-fetch)."""
+    """Delete the current image for an asset and regenerate it via Imagen/OpenRouter."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
     try:
@@ -1978,7 +1969,7 @@ def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: st
         raise HTTPException(status_code=404, detail="Asset directory not found")
 
     # Clear existing image and block marker
-    for fname in ("image.png", "image.jpg", "blocked.txt"):
+    for fname in ("image.png", "blocked.txt"):
         p = asset_dir / fname
         if p.exists():
             p.unlink()
@@ -1990,10 +1981,11 @@ def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: st
         rel = str(out.relative_to(ws))
         return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
 
-    generated_txt   = asset_dir / "generated.txt"
-    search_query_txt = asset_dir / "search_query.txt"
+    generated_txt = asset_dir / "generated.txt"
+    if not generated_txt.exists():
+        raise HTTPException(status_code=400, detail="No image source (generated.txt) found for this asset")
 
-    if generated_txt.exists() and USE_OPENROUTER():
+    if USE_OPENROUTER():
         from open_router.image import generate_image
         image_prompt = generated_txt.read_text().strip()
         out = asset_dir / "image.png"
@@ -2006,51 +1998,41 @@ def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: st
         rel = str(out.relative_to(ws))
         return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
 
-    if generated_txt.exists():
-        try:
-            from google import genai
-            from google.genai import types
-        except ImportError:
-            raise HTTPException(status_code=500, detail="Missing dependency: google-genai")
+    try:
+        from google import genai
+        from google.genai import types
+    except ImportError:
+        raise HTTPException(status_code=500, detail="Missing dependency: google-genai")
 
-        client = genai.Client(api_key=GEMINI_API_KEY())
-        image_prompt = generated_txt.read_text().strip()
-        out = asset_dir / "image.png"
-        blocked_marker = asset_dir / "blocked.txt"
-        try:
-            response = client.models.generate_images(
-                model=IMAGEN_MODEL,
-                prompt=image_prompt,
-                config=types.GenerateImagesConfig(number_of_images=1),
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+    client = genai.Client(api_key=GEMINI_API_KEY())
+    image_prompt = generated_txt.read_text().strip()
+    out = asset_dir / "image.png"
+    blocked_marker = asset_dir / "blocked.txt"
+    try:
+        response = client.models.generate_images(
+            model=IMAGEN_MODEL,
+            prompt=image_prompt,
+            config=types.GenerateImagesConfig(number_of_images=1),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        if response.generated_images:
-            out.write_bytes(response.generated_images[0].image.image_bytes)
-            rel = str(out.relative_to(ws))
-            return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
-        reason = getattr(response, "rai_filtered_reason", None) or "safety filter"
-        blocked_marker.write_text(reason)
-        raise HTTPException(status_code=422, detail=f"Image blocked by safety filter: {reason}")
-
-    if search_query_txt.exists():
-        query = search_query_txt.read_text().strip()
-        ok = _fetch_real_image(query, asset_dir)
-        if ok:
-            for fname in ("image.jpg", "image.png"):
-                p = asset_dir / fname
-                if p.exists():
-                    rel = str(p.relative_to(ws))
-                    return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
-        raise HTTPException(status_code=404, detail="No image found from web search")
-
-    raise HTTPException(status_code=400, detail="No image source (generated.txt or search_query.txt) found for this asset")
+    if response.generated_images:
+        out.write_bytes(response.generated_images[0].image.image_bytes)
+        rel = str(out.relative_to(ws))
+        return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
+    reason = getattr(response, "rai_filtered_reason", None) or "safety filter"
+    blocked_marker.write_text(reason)
+    raise HTTPException(status_code=422, detail=f"Image blocked by safety filter: {reason}")
 
 
 @router.post("/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/animate")
 def animate_asset(domain: str, run_id: str, scene_id: str, asset_id: str):
-    """Delete the current animated.mp4 for an asset (if any) and animate it."""
+    """Delete the current animated.mp4 for an asset (if any) and animate it.
+
+    For ai_video assets this calls the AI video model using animated.txt.
+    For ai_image assets this re-renders the Ken-Burns clip from image.png.
+    """
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
     try:
@@ -2062,16 +2044,20 @@ def animate_asset(domain: str, run_id: str, scene_id: str, asset_id: str):
     if not asset_dir.exists():
         raise HTTPException(status_code=404, detail="Asset directory not found")
 
-    txt_file = asset_dir / "animated.txt"
-    if not txt_file.exists():
-        raise HTTPException(status_code=400, detail="No animation prompt (animated.txt) found for this asset")
+    meta_path = asset_dir / "asset_meta.json"
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+
+    if meta.get("asset_type") == "ai_video":
+        txt_file = asset_dir / "animated.txt"
+        if not txt_file.exists():
+            raise HTTPException(status_code=400, detail="No animation prompt (animated.txt) found for this asset")
 
     out_mp4 = asset_dir / "animated.mp4"
     if out_mp4.exists():
         out_mp4.unlink()
 
     try:
-        _animate_single_asset(txt_file)
+        _animate_single_asset(asset_dir)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Animation failed: {e}")
 

@@ -164,87 +164,6 @@ def test_parse_scene_plan_bold_not_empty():
 
 
 # ─────────────────────────────────────────────────────────────
-# Animate field (duration/split slider feature)
-# ─────────────────────────────────────────────────────────────
-
-SCENE_PLAN_ANIMATE_PLAIN = """\
-SCENE 1
-
-Narration:
-A top for five dollars. You've seen the prices.
-
-Duration:
-20 seconds
-
-Purpose:
-VISUAL: shopping app close-up. To hook the viewer with a familiar premise.
-
-Emotion:
-Intrigue, curiosity.
-
-Animate:
-yes
-
----
-
-SCENE 2
-
-Narration:
-It starts with a ghost rule, buried in a law from 1930.
-
-Duration:
-20 seconds
-
-Purpose:
-VISUAL: dusty law book. To provide historical context.
-
-Emotion:
-Informative.
-
-Animate:
-no
-"""
-
-SCENE_PLAN_ANIMATE_BOLD = """\
-SCENE 1
-
-**Narration:**
-A top for five dollars. You've seen the prices.
-
-**Duration:**
-20 seconds
-
-**Purpose:**
-VISUAL: shopping app close-up. To hook the viewer with a familiar premise.
-
-**Emotion:**
-Intrigue, curiosity.
-
-**Animate:**
-yes
-"""
-
-
-def test_parse_beats_animate_plain():
-    scenes = tasks._parse_scene_plan(SCENE_PLAN_ANIMATE_PLAIN)
-    assert scenes[0]["beats"][0]["animate"] == "yes"
-    assert scenes[1]["beats"][0]["animate"] == "no"
-
-
-def test_parse_beats_animate_bold():
-    scenes = tasks._parse_scene_plan(SCENE_PLAN_ANIMATE_BOLD)
-    assert scenes[0]["beats"][0]["animate"] == "yes"
-
-
-def test_serialize_scene_plan_roundtrips_animate():
-    scenes = tasks._parse_scene_plan(SCENE_PLAN_ANIMATE_PLAIN)
-    serialized = tasks._serialize_scene_plan(scenes)
-    reparsed = tasks._parse_scene_plan(serialized)
-    assert reparsed[0]["beats"][0]["animate"] == "yes"
-    assert reparsed[1]["beats"][0]["animate"] == "no"
-
-
-# ─────────────────────────────────────────────────────────────
 # _parse_asset_manifest_scenes
 # ─────────────────────────────────────────────────────────────
 
@@ -263,11 +182,11 @@ DURATION: 16 seconds
 AI_PROMPT: Minimalist illustration of four glowing nodes
 
 **1.2**
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: zoom_out
 VISUAL_GOAL: Vintage teletype terminal
 DURATION: 16 seconds
-SEARCH_QUERY: ARPANET teletype terminal 1969
+AI_PROMPT: Cinematic illustration of a vintage teletype terminal
 
 ---
 
@@ -301,11 +220,10 @@ Here is the visual asset breakdown for your documentary.
 
 ### SCENE 2
 
-**ASSET_TYPE:** chart
+**ASSET_TYPE:** ai_video
 **VISUAL_GOAL:** A clean, animated graphic visually explaining the loophole.
-**AI_PROMPT:** N/A
+**AI_PROMPT:** "Slow push-in on a glowing infographic breaking down the loophole step by step."
 **KEN_BURNS:** N/A
-**STOCK_QUERIES:** N/A (This will be created by a motion graphics artist)
 **PRIORITY:** Critical
 **DURATION:** 20 seconds
 """
@@ -337,50 +255,72 @@ def test_parse_asset_manifest_bold_not_blank():
     assert fields_scene1["KEN_BURNS"] == "zoom_in"
 
 
+ASSET_MANIFEST_AI_VIDEO_PLAIN = """\
+### SCENE 1
+
+**1.1**
+ASSET_TYPE: ai_video
+VISUAL_GOAL: Drone push through a canyon of server racks
+KEN_BURNS: N/A
+INTENSITY: N/A
+DURATION: 10 seconds
+AI_PROMPT: Over 10 seconds, the camera pushes forward between towering rows of humming server racks.
+"""
+
+ASSET_MANIFEST_AI_VIDEO_BOLD = """\
+### SCENE 1
+
+**ASSET_TYPE:** ai_video
+**VISUAL_GOAL:** Drone push through a canyon of server racks
+**KEN_BURNS:** N/A
+**INTENSITY:** N/A
+**DURATION:** 10 seconds
+**AI_PROMPT:** Over 10 seconds, the camera pushes forward between towering rows of humming server racks.
+"""
+
+
+def test_parse_asset_manifest_ai_video_plain():
+    scenes = tasks._parse_asset_manifest_scenes(ASSET_MANIFEST_AI_VIDEO_PLAIN)
+    fields = {f["label"]: f["content"] for f in scenes[0]["assets"][0]["fields"]}
+    assert fields["ASSET_TYPE"] == "ai_video"
+    assert fields["KEN_BURNS"] == "N/A"
+    assert fields["INTENSITY"] == "N/A"
+
+
+def test_parse_asset_manifest_ai_video_bold():
+    scenes = tasks._parse_asset_manifest_scenes(ASSET_MANIFEST_AI_VIDEO_BOLD)
+    fields = {f["label"]: f["content"] for f in scenes[0]["assets"][0]["fields"]}
+    assert fields["ASSET_TYPE"] == "ai_video"
+    assert fields["KEN_BURNS"] == "N/A"
+    assert fields["INTENSITY"] == "N/A"
+
+
 # ─────────────────────────────────────────────────────────────
-# _parse_asset_manifest (internal, plain-format — used by Step 8's
-# animation-gating logic, distinct from _parse_asset_manifest_scenes above)
+# _parse_asset_manifest (internal, plain-format — used by Step 8/9's
+# asset-type dispatch, distinct from _parse_asset_manifest_scenes above)
 # ─────────────────────────────────────────────────────────────
 
 ASSET_MANIFEST_INTERNAL_PLAIN = """\
 SCENE 1
-ASSET_TYPE: ai_image
+ASSET_TYPE: ai_video
 VISUAL_GOAL: A glowing ARPANET network diagram
-KEN_BURNS: zoom_in
 DURATION: 16 seconds
-ANIMATE: yes
 
 ---
 
 SCENE 2
 ASSET_TYPE: ai_image
 VISUAL_GOAL: A dusty law book
-KEN_BURNS: zoom_out
 DURATION: 16 seconds
-ANIMATE: no
 """
 
 
-def test_parse_asset_manifest_internal_animate_field():
+def test_parse_asset_manifest_internal_fields():
     manifest = tasks._parse_asset_manifest(ASSET_MANIFEST_INTERNAL_PLAIN)
-    assert manifest[("1", "1")]["animate"] == "yes"
-    assert manifest[("2", "1")]["animate"] == "no"
-
-
-ASSET_MANIFEST_INTERNAL_NO_ANIMATE_FIELD = """\
-SCENE 1
-ASSET_TYPE: ai_image
-VISUAL_GOAL: A glowing ARPANET network diagram
-KEN_BURNS: zoom_in
-DURATION: 16 seconds
-"""
-
-
-def test_parse_asset_manifest_internal_animate_defaults_to_yes():
-    # Manifests produced before this feature (or missing the field) should
-    # default to "yes" so existing runs keep animating every static asset.
-    manifest = tasks._parse_asset_manifest(ASSET_MANIFEST_INTERNAL_NO_ANIMATE_FIELD)
-    assert manifest[("1", "1")]["animate"] == "yes"
+    assert manifest[("1", "1")]["visual_goal"] == "A glowing ARPANET network diagram"
+    assert manifest[("1", "1")]["duration"] == "16 seconds"
+    assert "animate" not in manifest[("1", "1")]
+    assert "ken_burns" not in manifest[("1", "1")]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -424,7 +364,7 @@ TYPE: ai_image
 VISUAL_GOAL: To visually represent the overwhelming flood of packages.
 PRIORITY: Critical
 DURATION: 20 seconds
-SEARCH_QUERY: N/A
+AI_PROMPT: N/A
 
 SCENE 2
 ASSET 1
@@ -432,7 +372,7 @@ TYPE: ai_image
 VISUAL_GOAL: To personify the ghost rule as an old, forgotten law.
 PRIORITY: Critical
 DURATION: 20 seconds
-SEARCH_QUERY: N/A
+AI_PROMPT: N/A
 """
 
 

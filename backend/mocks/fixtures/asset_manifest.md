@@ -12,11 +12,11 @@ DURATION: 16 seconds
 AI_PROMPT: Minimalist illustration of four glowing nodes connected by luminous blue lines against a deep black background, 1960s retro-futurist tech aesthetic, network diagram, digital art
 
 **1.2**
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: zoom_out
-VISUAL_GOAL: Vintage teletype terminal showing LO on screen, 1969 era computing
+VISUAL_GOAL: Vintage teletype terminal showing LOGIN on screen, 1969 era computing
 DURATION: 16 seconds
-SEARCH_QUERY: ARPANET teletype terminal 1969
+AI_PROMPT: Cinematic illustration of a vintage teletype terminal with a glowing screen reading LOGIN, dim 1960s computer lab, dramatic side lighting, documentary photography style
 
 ---
 
@@ -30,11 +30,11 @@ DURATION: 16 seconds
 AI_PROMPT: Abstract digital illustration of isolated network clusters floating disconnected in deep space, each cluster glowing a different colour, dark background, futuristic infographic style
 
 **2.2**
-TYPE: real_image
-KEN_BURNS: zoom_in
-VISUAL_GOAL: Two scientists at a chalkboard covered in network diagrams and mathematical equations
+TYPE: ai_video
+KEN_BURNS: N/A
+VISUAL_GOAL: Two researchers at a chalkboard covered in network diagrams and mathematical equations, camera slowly pushing in
 DURATION: 16 seconds
-SEARCH_QUERY: Vint Cerf Bob Kahn TCP IP inventors 1974
+AI_PROMPT: Cinematic wide shot of two researchers at a chalkboard covered in network diagrams and equations, warm desk lamp light, dark academic office, documentary photography style
 
 ---
 
@@ -48,22 +48,22 @@ DURATION: 16 seconds
 AI_PROMPT: Cinematic illustration of a solitary researcher typing at a glowing terminal in a dark office, stacks of papers around him, single desk lamp, atmospheric, CERN lab aesthetic 1989
 
 **3.2**
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: zoom_out
 VISUAL_GOAL: The first ever web browser on a NeXT computer displaying the original CERN website
 DURATION: 16 seconds
-SEARCH_QUERY: first web browser NeXT computer CERN 1991
+AI_PROMPT: Close-up of a vintage NeXT computer screen displaying an early text-based web browser interface, dim lab lighting, dramatic shallow depth of field, documentary photography style
 
 ---
 
 ### SCENE 4
 
 **4.1**
-TYPE: real_image
+TYPE: ai_image
 KEN_BURNS: pan_left
-VISUAL_GOAL: Early 1990s internet café with people at monitors, dial-up modem era
+VISUAL_GOAL: Early 1990s internet cafe with people at monitors, dial-up modem era
 DURATION: 16 seconds
-SEARCH_QUERY: 1990s internet cafe computers early web
+AI_PROMPT: Wide shot of a 1990s internet cafe filled with beige CRT monitors and patrons browsing the early web, warm fluorescent lighting, nostalgic documentary photography style
 
 **4.2**
 TYPE: ai_image

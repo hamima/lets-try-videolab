@@ -6,8 +6,7 @@ Automated documentary video pipeline. Given a domain and topic, the pipeline res
 
 ```bash
 # 1. Install dependencies
-pip install google-genai requests moviepy folium playwright matplotlib
-playwright install chromium
+pip install google-genai requests moviepy matplotlib
 brew install ffmpeg
 
 # 2. Set API keys
@@ -61,7 +60,7 @@ Also set `RUNPOD_ENDPOINT` and `RUNPOD_MODEL` in `automate.py` before running st
 | [Pipeline Overview](docs/pipeline-overview.md) | Full flow diagram, key decisions, execution order |
 | [Scaffolding](docs/scaffolding.md) | CLI args, workspace layout, state file, domain/voice config |
 | [LLM Steps](docs/llm-steps.md) | Gemini runner, text-generation steps (1–5, 8, 10, 12, 16, 18) |
-| [Asset Generation](docs/asset-generation.md) | Steps 6–9: fetch, Imagen 4, maps, charts, animation prompts, RunPod |
+| [Asset Generation](docs/asset-generation.md) | Steps 6–9: fetch, Imagen 4, animation prompts, RunPod |
 | [Audio Generation](docs/audio-generation.md) | Step 11 ElevenLabs TTS, Step 13 music generation |
 | [Assembly](docs/assembly.md) | Step 17 — ffmpeg assembly via `assemble.py`; Step 18 — platform metadata |
 

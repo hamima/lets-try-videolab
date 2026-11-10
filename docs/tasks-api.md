@@ -23,9 +23,9 @@ All task endpoints are mounted at `/tasks`.
 | `4` | Asset Manifest | gemini |
 | `5` | Asset Acquisition Instructions | gemini |
 | `6` | Fetch Assets | fetch_assets |
-| `7` | AI Image Generation | imagen |
+| `7` | AI Asset Generation | imagen |
 | `8` | Animation Prompt | animation_prompt |
-| `9` | Video Animation | runpod_animation |
+| `9` | Video Animation | video_animation |
 | `10` | Narration Script | gemini |
 | `11` | Narration Audio | tts |
 | `12` | Music Prompt | gemini |

@@ -20,9 +20,7 @@ Workspaces are scoped per domain: workspace/{domain}/YYYY-MM-DD_HHMMSS/
   A fresh workspace is created if none exists for that domain.
 
 Step 6 (Fetch Assets) runs entirely within this file — no external scripts needed.
-  - ai_video assets: writes generated.txt with the Imagen prompt for step 7
-  - map assets: writes map_spec.json
-  - photo/video assets: downloads from Pexels
+  - ai_video / ai_image assets: writes generated.txt with the Imagen prompt for step 7
 
 Usage:
     python automate.py              # pick domain, resume or start workspace
@@ -46,8 +44,6 @@ from datetime import datetime
 
 GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
-PEXELS_API_KEY     = os.environ.get("PEXELS_API_KEY", "")
-PIXABAY_API_KEY    = os.environ.get("PIXABAY_API_KEY", "")
 RUNPOD_URL         = os.environ.get("RUNPOD_URL", "").rstrip("/")
 
 # ─────────────────────────────────────────────────────────────
@@ -484,33 +480,17 @@ def run_imagen_generation(step: dict, ws: Path, state: dict, clean: bool = False
 
     if clean:
         removed = 0
-        for pattern in ("image.png", "image.jpg", "blocked.txt"):
+        for pattern in ("image.png", "blocked.txt"):
             for f in assets_dir.rglob(pattern):
                 f.unlink()
                 removed += 1
         print(f"  [CLEAN] Removed {removed} existing image/blocked files — regenerating all")
         return
 
-    # ── Web-fetch pass: search_query.txt → image.jpg ──────────────────────────
-    search_txts = sorted(assets_dir.rglob("search_query.txt"))
-    for sq_file in search_txts:
-        out_img = sq_file.parent / "image.jpg"
-        label = sq_file.parent.relative_to(ws)
-        if out_img.exists():
-            print(f"  [SKIP] {label} — image.jpg exists")
-            continue
-        query = sq_file.read_text().strip()
-        print(f"  Fetching real image: {label} — '{query}'...")
-        if not _fetch_real_image(query, sq_file.parent):
-            print(f"    [WARN] No image found for '{query}'")
-        else:
-            print(f"    → {out_img.relative_to(BASE_DIR)}")
-
     # ── Imagen pass: generated.txt → image.png ─────────────────────────────
     generated_txts = sorted(assets_dir.rglob("generated.txt"))
     if not generated_txts:
-        if not search_txts:
-            print("  No generated.txt or search_query.txt files found in assets/")
+        print("  No generated.txt files found in assets/")
         return
 
     client = genai.Client(api_key=GEMINI_API_KEY)
@@ -609,7 +589,7 @@ def _parse_asset_manifest(text: str) -> dict:
 
 def run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
     """
-    Step 8 — For each static asset (image.png / map.png / chart.png), call Gemini
+    Step 8 — For each static asset (image.png), call Gemini
     to write a one-paragraph cinematic animation description → animated.txt.
     Skips assets that already have animated.txt (resumable).
     """
@@ -636,9 +616,7 @@ def run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
         print("  No assets/ directory — skipping animation prompts")
         return
 
-    static_files = []
-    for candidate in ("image.png", "map.png", "chart.png"):
-        static_files.extend(sorted(assets_dir.rglob(candidate)))
+    static_files = sorted(assets_dir.rglob("image.png"))
 
     if not static_files:
         print("  No static asset files found — skipping animation prompts")
@@ -667,9 +645,7 @@ def run_animation_prompt_step(step: dict, ws: Path, state: dict) -> None:
         visual_goal = meta.get("visual_goal", "")
         duration = meta.get("duration", "")
 
-        # Derive asset_type from filename
-        name_to_type = {"image.png": "ai_image", "map.png": "map", "chart.png": "chart"}
-        asset_type = name_to_type.get(asset_file.name, "image")
+        asset_type = "ai_image"
 
         prompt = (
             prompt_template
@@ -736,12 +712,9 @@ def run_runpod_animation(step: dict, ws: Path, state: dict) -> None:
             continue
 
         # Find the static asset to animate
-        static_asset = None
-        for candidate in ("image.png", "map.png", "chart.png"):
-            candidate_path = txt_file.parent / candidate
-            if candidate_path.exists():
-                static_asset = candidate_path
-                break
+        static_asset = txt_file.parent / "image.png"
+        if not static_asset.exists():
+            static_asset = None
 
         if static_asset is None:
             label = txt_file.parent.relative_to(ws)
@@ -881,179 +854,6 @@ def _parse_acquisition_doc(text: str) -> list[dict]:
     return assets
 
 
-def _fetch_real_image(query: str, out_dir: Path) -> bool:
-    """
-    Fetch a real-world image for anything AI generation can't handle.
-
-    Strategy (falls through on failure or 429):
-      1. Wikipedia pageimages API  — best for named people & famous places
-      2. Wikimedia Commons search  — broader fallback for events & objects
-      3. Pexels photo search       — last resort for anything else
-    """
-    import time as _time
-    try:
-        import requests
-    except ImportError:
-        print("[ERROR] Missing: pip install requests")
-        return False
-
-    headers = {"User-Agent": "VidLifePipeline/1.0 (documentary video generator)"}
-    out_img = out_dir / "image.jpg"
-
-    def _is_rate_limited(exc: Exception) -> bool:
-        return "429" in str(exc)
-
-    def _save_if_valid(img_url: str) -> bool:
-        """Download img_url, verify it's a raster image, save as image.jpg. Returns True on success."""
-        resp = requests.get(img_url, headers=headers, timeout=60)
-        resp.raise_for_status()
-        content_type = resp.headers.get("Content-Type", "")
-        data = resp.content
-        # Reject HTML, SVG, and empty responses
-        if not data:
-            print(f"      [WARN] Empty response from {img_url}")
-            return False
-        if "html" in content_type or "svg" in content_type:
-            print(f"      [WARN] Non-image content-type '{content_type}' — skipping")
-            return False
-        # Verify raster magic bytes: JPEG (FF D8 FF) or PNG (89 50 4E 47)
-        if not (data[:3] == b'\xff\xd8\xff' or data[:4] == b'\x89PNG'):
-            print(f"      [WARN] Response is not a valid JPEG/PNG (got {data[:4].hex()}) — skipping")
-            return False
-        out_img.write_bytes(data)
-        return True
-
-    # 1. Wikipedia pageimages — great for people and famous entities
-    try:
-        r = requests.get(
-            "https://en.wikipedia.org/w/api.php",
-            params={
-                "action": "query",
-                "titles": query,
-                "prop": "pageimages",
-                "format": "json",
-                "pithumbsize": 1200,
-                "pilicense": "any",
-            },
-            headers=headers,
-            timeout=30,
-        )
-        r.raise_for_status()
-        pages = r.json().get("query", {}).get("pages", {})
-        for page in pages.values():
-            img_url = page.get("thumbnail", {}).get("source")
-            if img_url and _save_if_valid(img_url):
-                print(f"      source: Wikipedia")
-                return True
-    except Exception as exc:
-        if _is_rate_limited(exc):
-            print(f"    [WARN] Wikipedia rate-limited — skipping to Wikimedia Commons")
-        else:
-            print(f"    [WARN] Wikipedia lookup failed: {exc}")
-
-    _time.sleep(1)  # be polite between Wikimedia API calls
-
-    # 2. Wikimedia Commons full-text search — events, locations, objects
-    try:
-        r = requests.get(
-            "https://commons.wikimedia.org/w/api.php",
-            params={
-                "action": "query",
-                "list": "search",
-                "srsearch": query,
-                "srnamespace": "6",
-                "srlimit": "5",
-                "format": "json",
-            },
-            headers=headers,
-            timeout=30,
-        )
-        r.raise_for_status()
-        for result in r.json().get("query", {}).get("search", []):
-            _time.sleep(0.5)
-            fr = requests.get(
-                "https://commons.wikimedia.org/w/api.php",
-                params={
-                    "action": "query",
-                    "titles": result["title"],
-                    "prop": "imageinfo",
-                    "iiprop": "url",
-                    "iiurlwidth": 1200,
-                    "format": "json",
-                },
-                headers=headers,
-                timeout=30,
-            )
-            fr.raise_for_status()
-            for fp in fr.json().get("query", {}).get("pages", {}).values():
-                info = (fp.get("imageinfo") or [{}])[0]
-                img_url = info.get("thumburl") or info.get("url")
-                if img_url and _save_if_valid(img_url):
-                    print(f"      source: Wikimedia Commons")
-                    return True
-    except Exception as exc:
-        if _is_rate_limited(exc):
-            print(f"    [WARN] Wikimedia Commons rate-limited — falling back to Pexels")
-        else:
-            print(f"    [WARN] Wikimedia Commons search failed: {exc}")
-
-    # 3. Pexels — last resort
-    try:
-        r = requests.get(
-            f"https://api.pexels.com/v1/search?query={query}&per_page=1",
-            headers={"Authorization": PEXELS_API_KEY},
-            timeout=30,
-        )
-        r.raise_for_status()
-        photos = r.json().get("photos", [])
-        if photos and _save_if_valid(photos[0]["src"]["large"]):
-            print(f"      source: Pexels")
-            return True
-    except Exception as exc:
-        print(f"    [WARN] Pexels fallback failed: {exc}")
-
-    return False
-
-
-def _fetch_stock(query: str, asset_type: str, out_dir: Path) -> None:
-    """Download one stock photo or video from Pexels."""
-    try:
-        import requests
-    except ImportError:
-        print("[ERROR] Missing: pip install requests")
-        return
-
-    if asset_type == "photo":
-        url = f"https://api.pexels.com/v1/search?query={query}&per_page=1"
-        headers = {"Authorization": PEXELS_API_KEY}
-        r = requests.get(url, headers=headers, timeout=30)
-        r.raise_for_status()
-        photos = r.json().get("photos", [])
-        if not photos:
-            print(f"    [WARN] No Pexels photo found for: {query}")
-            return
-        img_url = photos[0]["src"]["large"]
-        content = requests.get(img_url, timeout=60).content
-        (out_dir / "image.jpg").write_bytes(content)
-        print(f"    → {(out_dir / 'image.jpg').name}")
-
-    elif asset_type == "video":
-        url = f"https://api.pexels.com/videos/search?query={query}&per_page=1"
-        headers = {"Authorization": PEXELS_API_KEY}
-        r = requests.get(url, headers=headers, timeout=30)
-        r.raise_for_status()
-        videos = r.json().get("videos", [])
-        if not videos:
-            print(f"    [WARN] No Pexels video found for: {query}")
-            return
-        files = videos[0].get("video_files", [])
-        # pick lowest quality to keep download fast
-        files_sorted = sorted(files, key=lambda f: f.get("width", 0))
-        vid_url = files_sorted[0]["link"]
-        content = requests.get(vid_url, timeout=120).content
-        (out_dir / "video.mp4").write_bytes(content)
-        print(f"    → {(out_dir / 'video.mp4').name}")
-
 
 def run_fetch_assets(step: dict, ws: Path, state: dict) -> None:
     acquisition_doc = ws / "asset_acquisition.md"
@@ -1081,34 +881,6 @@ def run_fetch_assets(step: dict, ws: Path, state: dict) -> None:
                 continue
             (out_dir / "generated.txt").write_text(prompt)
             print(f"  {label}: wrote generated.txt ({len(prompt)} chars)")
-
-        elif atype in ("real_image", "image"):
-            if atype == "real_image":
-                query = a.get("search_query", "").strip()
-            else:
-                variations = a.get("search_variations", "").strip()
-                query = variations.splitlines()[0].strip().lstrip("0123456789. ").strip("\"'")
-            if not query or query.upper() == "N/A":
-                print(f"  [WARN] {label}: no search query, skipping")
-                continue
-            (out_dir / "search_query.txt").write_text(query)
-            print(f"  {label}: wrote search_query.txt → '{query}'")
-
-        elif atype == "map":
-            spec = a.get("map_spec", "").strip()
-            if not spec or spec.upper() == "N/A":
-                print(f"  [WARN] {label}: no map spec, skipping")
-                continue
-            (out_dir / "map_spec.json").write_text(spec)
-            print(f"  {label}: wrote map_spec.json")
-
-        elif atype == "chart":
-            spec = a.get("chart_spec", "").strip()
-            if not spec or spec.upper() == "N/A":
-                print(f"  [WARN] {label}: no chart spec, skipping")
-                continue
-            (out_dir / "chart_spec.json").write_text(spec)
-            print(f"  {label}: wrote chart_spec.json")
 
         else:
             print(f"  [WARN] {label}: unknown type '{atype}', skipping")
