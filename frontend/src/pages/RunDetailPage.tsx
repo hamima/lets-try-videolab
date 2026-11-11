@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import StepContentPanel from '@/components/StepContentPanel'
-import { firstReachableStepId } from '@/lib/wizard'
+import { firstReachableStepId, isStepReachable } from '@/lib/wizard'
 import { cn } from '@/lib/utils'
 
 // ─── Domain colours (same as list page) ─────────────────────────────────────
@@ -188,26 +188,38 @@ export default function RunDetailPage() {
           <div className="w-72 border-r shrink-0 flex flex-col">
             <ScrollArea className="flex-1">
               <div className="p-3 space-y-1">
-                {run?.steps.map((step) => (
-                  <button
-                    key={step.id}
-                    onClick={() => setSelectedStep(step)}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors',
-                      selectedStep?.id === step.id
-                        ? 'bg-primary/10 text-primary'
-                        : 'hover:bg-accent'
-                    )}
-                  >
-                    <StepPill status={step.status} id={step.id} />
-                    <div className="min-w-0 flex-1">
-                      <p className={cn('text-sm font-medium truncate', selectedStep?.id === step.id ? 'text-primary' : 'text-foreground')}>
-                        {step.name}
-                      </p>
-                      <p className="text-xs text-muted-foreground truncate">{step.type}</p>
-                    </div>
-                  </button>
-                ))}
+                {run?.steps.map((step) => {
+                  const reachable = isStepReachable(run.steps, step.id)
+                  const tab = (
+                    <button
+                      key={step.id}
+                      disabled={!reachable}
+                      onClick={() => reachable && setSelectedStep(step)}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors',
+                        !reachable && 'opacity-50 cursor-not-allowed',
+                        reachable && selectedStep?.id === step.id
+                          ? 'bg-primary/10 text-primary'
+                          : reachable && 'hover:bg-accent'
+                      )}
+                    >
+                      <StepPill status={step.status} id={step.id} />
+                      <div className="min-w-0 flex-1">
+                        <p className={cn('text-sm font-medium truncate', reachable && selectedStep?.id === step.id ? 'text-primary' : 'text-foreground')}>
+                          {step.name}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">{step.type}</p>
+                      </div>
+                    </button>
+                  )
+                  if (reachable) return tab
+                  return (
+                    <Tooltip key={step.id}>
+                      <TooltipTrigger asChild>{tab}</TooltipTrigger>
+                      <TooltipContent>Finish the previous steps first</TooltipContent>
+                    </Tooltip>
+                  )
+                })}
               </div>
             </ScrollArea>
           </div>
