@@ -837,8 +837,6 @@ def _run_script(step: dict, ws: Path, state: dict) -> None:
 
 def _output_exists(step: dict, ws: Path) -> bool:
     out = step["output"]
-    if out.startswith("output/"):
-        return (BASE_DIR / out).exists()
     if out.endswith("/"):
         p = ws / out
         marker = step.get("output_marker")
@@ -1689,7 +1687,7 @@ def get_step_content(domain: str, run_id: str, step_id: str):
 
     if kind == "json":
         raw = cfg["file"]
-        fp = (BASE_DIR / raw) if raw.startswith("output/") else (ws / raw)
+        fp = ws / raw
         if not fp.exists():
             return {"kind": kind, "content": None}
         try:
@@ -1704,7 +1702,7 @@ def get_step_content(domain: str, run_id: str, step_id: str):
 
     if kind == "video":
         raw = cfg["file"]
-        fp = (BASE_DIR / raw) if raw.startswith("output/") else (ws / raw)
+        fp = ws / raw
         url = f"/tasks/files/{domain}/{run_id}/{raw}" if fp.exists() else None
         return {"kind": kind, "url": url}
 
@@ -2074,19 +2072,16 @@ def serve_file(domain: str, run_id: str, file_path: str):
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    full = (BASE_DIR / file_path) if file_path.startswith("output/") else (ws / file_path)
+    full = ws / file_path
 
     if not full.exists() or not full.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
-    # Security: path must be inside workspace or project output dir
+    # Security: path must be inside this run's workspace
     try:
         full.relative_to(ws)
     except ValueError:
-        try:
-            full.relative_to(BASE_DIR / "output")
-        except ValueError:
-            raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=403, detail="Access denied")
 
     mime, _ = mimetypes.guess_type(str(full))
     return FileResponse(path=str(full), media_type=mime or "application/octet-stream")
