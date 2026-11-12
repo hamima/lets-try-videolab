@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -2178,8 +2179,22 @@ def serve_file(
 # ─────────────────────────────────────────────────────────────
 
 import settings as _settings
+from workspace_migration import DEFAULT_OWNER as _MIGRATION_OWNER
+from workspace_migration import migrate_orphan_runs as _migrate_orphan_runs
 
-app = FastAPI(title="VidLife Tasks API")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    # Attribute any leftover pre-multi-user workspace/<domain>/<run_id>/
+    # folders to the default owner on every boot. No-op once nothing is
+    # left in the old layout.
+    moved = _migrate_orphan_runs(WORKSPACE_ROOT, owner=_MIGRATION_OWNER, apply=True)
+    if moved:
+        print(f"[startup] Migrated {len(moved)} orphan run(s) to workspace/{_MIGRATION_OWNER}/.")
+    yield
+
+
+app = FastAPI(title="VidLife Tasks API", lifespan=_lifespan)
 app.include_router(router)
 app.include_router(_settings.router, prefix="/tasks")
 app.include_router(auth.router, prefix="/tasks")
