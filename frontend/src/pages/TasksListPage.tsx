@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Film, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { deleteRun, listRuns, startRun, type RunSummary } from '@/api/tasks'
-import { DOMAIN_DESCRIPTIONS } from '@/lib/domainDescriptions'
+import { deleteRun, listRuns, type RunSummary } from '@/api/tasks'
+import GenerateFlow from '@/components/GenerateFlow'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // ─── Domain colours ───────────────────────────────────────────────────────────
@@ -22,8 +21,6 @@ const DOMAIN_COLORS: Record<string, string> = {
   technology:        'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   general:           'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400',
 }
-
-const SUPPORTED_DOMAINS = ['political', 'general_knowledge', 'science', 'business', 'history', 'sports', 'technology', 'general']
 
 // ─── Run card ─────────────────────────────────────────────────────────────────
 
@@ -142,82 +139,30 @@ function DeleteRunModal({ run, onClose, onDeleted }: { run: RunSummary | null; o
 }
 
 // ─── New Run modal ────────────────────────────────────────────────────────────
+//
+// Hosts the exact same GenerateFlow used by the standalone Generate page, so
+// starting a run looks and behaves identically whether you get there from
+// the nav or from this page's New Run button.
 
-function NewRunModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const navigate = useNavigate()
-  const [domain, setDomain] = useState('political')
-  const [fresh, setFresh] = useState(false)
-  const [loading, setLoading] = useState(false)
-
-  async function handleStart() {
-    setLoading(true)
-    try {
-      const res = await startRun(domain, fresh)
-      onClose()
-      navigate(`/tasks/${res.domain}/${res.run_id}`)
-    } finally {
-      setLoading(false)
+function GenerateRunModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
     }
-  }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
+  if (!open) return null
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>New Pipeline Run</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Domain</label>
-            <Select value={domain} onValueChange={setDomain}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SUPPORTED_DOMAINS.map((d) => (
-                  <SelectItem key={d} value={d}>{d.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {DOMAIN_DESCRIPTIONS[domain] && (
-              <div className="rounded-lg bg-muted/50 border px-3 py-2.5 space-y-1.5">
-                <p className="text-xs text-foreground leading-relaxed">{DOMAIN_DESCRIPTIONS[domain].role}</p>
-                <p className="text-xs text-muted-foreground leading-relaxed">{DOMAIN_DESCRIPTIONS[domain].task}</p>
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Mode</label>
-            <div className="flex rounded-lg border overflow-hidden">
-              <button
-                onClick={() => setFresh(false)}
-                className={`flex-1 px-3 py-2 text-sm transition-colors ${!fresh ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
-              >
-                Resume latest
-              </button>
-              <button
-                onClick={() => setFresh(true)}
-                className={`flex-1 px-3 py-2 text-sm transition-colors border-l ${fresh ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
-              >
-                Fresh start
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {fresh ? 'Creates a new workspace — run each of the 18 steps individually from there.' : 'Resumes the latest workspace, skipping completed steps.'}
-            </p>
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={handleStart} disabled={loading}>
-            {loading ? 'Starting…' : 'Start Run'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <GenerateFlow onClose={onClose} />
+    </div>
   )
 }
 
@@ -307,7 +252,7 @@ export default function TasksListPage() {
         </div>
       )}
 
-      <NewRunModal open={showModal} onClose={() => setShowModal(false)} />
+      <GenerateRunModal open={showModal} onClose={() => setShowModal(false)} />
       <DeleteRunModal
         run={deleteTarget}
         onClose={() => setDeleteTarget(null)}
