@@ -46,9 +46,16 @@ function RunCard({ run, onClick, onDelete }: { run: RunSummary; onClick: () => v
         className="w-full text-left rounded-xl border bg-card p-5 hover:border-primary/50 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-ring"
       >
         <div className="flex items-start justify-between mb-3 pr-7">
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${DOMAIN_COLORS[run.domain] ?? DOMAIN_COLORS.general}`}>
-            {run.domain.replace('_', ' ')}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${DOMAIN_COLORS[run.domain] ?? DOMAIN_COLORS.general}`}>
+              {run.domain.replace('_', ' ')}
+            </span>
+            {run.owner && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                👤 {run.owner}
+              </span>
+            )}
+          </div>
           {status === 'active' && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -99,7 +106,7 @@ function DeleteRunModal({ run, onClose, onDeleted }: { run: RunSummary | null; o
     setLoading(true)
     setError(null)
     try {
-      await deleteRun(run.domain, run.run_id)
+      await deleteRun(run.domain, run.run_id, run.owner ?? undefined)
       onDeleted(run)
       onClose()
     } catch {
@@ -287,9 +294,9 @@ export default function TasksListPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {runs.map((run) => (
             <RunCard
-              key={`${run.domain}/${run.run_id}`}
+              key={`${run.owner ?? ''}/${run.domain}/${run.run_id}`}
               run={run}
-              onClick={() => navigate(`/tasks/${run.domain}/${run.run_id}`)}
+              onClick={() => navigate(`/tasks/${run.domain}/${run.run_id}${run.owner ? `?owner=${encodeURIComponent(run.owner)}` : ''}`)}
               onDelete={() => setDeleteTarget(run)}
             />
           ))}

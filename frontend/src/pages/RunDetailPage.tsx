@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Plus, Compass } from 'lucide-react'
 import { getRunStatus, runStep, startRun, type RunStatus, type StepDetail } from '@/api/tasks'
 import { Button } from '@/components/ui/button'
@@ -44,6 +44,8 @@ function StepPill({ status, id }: { status: StepDetail['status']; id: string }) 
 export default function RunDetailPage() {
   const { domain = '', runId = '' } = useParams<{ domain: string; runId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const owner = searchParams.get('owner') ?? undefined
 
   const [run, setRun] = useState<RunStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -55,7 +57,7 @@ export default function RunDetailPage() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await getRunStatus(domain, runId)
+      const data = await getRunStatus(domain, runId, owner)
       setRun(data)
 
       // Auto-select active step when it changes
@@ -71,7 +73,7 @@ export default function RunDetailPage() {
     } finally {
       setLoading(false)
     }
-  }, [domain, runId])
+  }, [domain, runId, owner])
 
   useEffect(() => {
     fetchStatus()
@@ -103,7 +105,7 @@ export default function RunDetailPage() {
   async function handleRerun(step: StepDetail) {
     setRerunning(true)
     try {
-      await runStep(domain, runId, step.id, true)
+      await runStep(domain, runId, step.id, true, owner)
       await fetchStatus()
       setContentReloadKey((k) => k + 1)
     } finally {
@@ -160,7 +162,7 @@ export default function RunDetailPage() {
                 size="sm"
                 className="gap-1.5"
                 disabled={!run}
-                onClick={() => run && navigate(`/tasks/${domain}/${runId}/wizard/${firstReachableStepId(run.steps)}`)}
+                onClick={() => run && navigate(`/tasks/${domain}/${runId}/wizard/${firstReachableStepId(run.steps)}${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`)}
               >
                 <Compass className="w-3.5 h-3.5" /> Wizard View
               </Button>
@@ -230,6 +232,7 @@ export default function RunDetailPage() {
               step={selectedStep}
               domain={domain}
               runId={runId}
+              owner={owner}
               reloadKey={contentReloadKey}
               onRerun={() => selectedStep && handleRerun(selectedStep)}
               onSaved={() => fetchStatus()}

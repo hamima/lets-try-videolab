@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ChevronLeft, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { getRunStatus, runStep, type RunStatus, type StepDetail } from '@/api/tasks'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,9 @@ import { firstReachableStepId, isStepReachable, nextStepId, previousStepId } fro
 export default function RunWizardPage() {
   const { domain = '', runId = '', stepId = '' } = useParams<{ domain: string; runId: string; stepId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const owner = searchParams.get('owner') ?? undefined
+  const ownerSuffix = owner ? `?owner=${encodeURIComponent(owner)}` : ''
 
   const [run, setRun] = useState<RunStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -19,7 +22,7 @@ export default function RunWizardPage() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const data = await getRunStatus(domain, runId)
+      const data = await getRunStatus(domain, runId, owner)
       setRun(data)
       return data
     } catch {
@@ -27,7 +30,7 @@ export default function RunWizardPage() {
     } finally {
       setLoading(false)
     }
-  }, [domain, runId])
+  }, [domain, runId, owner])
 
   useEffect(() => {
     fetchStatus()
@@ -48,7 +51,7 @@ export default function RunWizardPage() {
   }, [run?.active, fetchStatus])
 
   async function handleRerun(step: StepDetail) {
-    await runStep(domain, runId, step.id, true)
+    await runStep(domain, runId, step.id, true, owner)
     await fetchStatus()
     setContentReloadKey((k) => k + 1)
   }
@@ -75,7 +78,7 @@ export default function RunWizardPage() {
   // back to the furthest step the user is actually allowed to be on.
   if (!isStepReachable(run.steps, stepId)) {
     const target = firstReachableStepId(run.steps)
-    return <Navigate to={`/tasks/${domain}/${runId}/wizard/${target}`} replace />
+    return <Navigate to={`/tasks/${domain}/${runId}/wizard/${target}${ownerSuffix}`} replace />
   }
 
   const currentStep = run.steps.find((s) => s.id === stepId) ?? null
@@ -88,7 +91,7 @@ export default function RunWizardPage() {
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)' }}>
       {/* Sub-header */}
       <div className="border-b px-4 py-3 flex items-center justify-between shrink-0 bg-background">
-        <Button variant="ghost" size="sm" className="gap-1.5 -ml-1" onClick={() => navigate(`/tasks/${domain}/${runId}`)}>
+        <Button variant="ghost" size="sm" className="gap-1.5 -ml-1" onClick={() => navigate(`/tasks/${domain}/${runId}${ownerSuffix}`)}>
           <ArrowLeft className="w-4 h-4" /> View in classic
         </Button>
         <span className="text-sm text-muted-foreground">Wizard · {domain.replace('_', ' ')} / {runId}</span>
@@ -99,7 +102,7 @@ export default function RunWizardPage() {
         <WizardStepper
           steps={run.steps}
           currentStepId={stepId}
-          onSelect={(id) => navigate(`/tasks/${domain}/${runId}/wizard/${id}`)}
+          onSelect={(id) => navigate(`/tasks/${domain}/${runId}/wizard/${id}${ownerSuffix}`)}
         />
       </div>
 
@@ -109,6 +112,7 @@ export default function RunWizardPage() {
           step={currentStep}
           domain={domain}
           runId={runId}
+          owner={owner}
           reloadKey={contentReloadKey}
           onRerun={() => currentStep && handleRerun(currentStep)}
           onSaved={() => fetchStatus()}
@@ -122,7 +126,7 @@ export default function RunWizardPage() {
           size="sm"
           className="gap-1.5"
           disabled={!prevId}
-          onClick={() => prevId && navigate(`/tasks/${domain}/${runId}/wizard/${prevId}`)}
+          onClick={() => prevId && navigate(`/tasks/${domain}/${runId}/wizard/${prevId}${ownerSuffix}`)}
         >
           <ChevronLeft className="w-4 h-4" /> Back
         </Button>
@@ -136,7 +140,7 @@ export default function RunWizardPage() {
             size="sm"
             className="gap-1.5"
             disabled={!canAdvance || !nextId}
-            onClick={() => nextId && navigate(`/tasks/${domain}/${runId}/wizard/${nextId}`)}
+            onClick={() => nextId && navigate(`/tasks/${domain}/${runId}/wizard/${nextId}${ownerSuffix}`)}
           >
             Next <ChevronRight className="w-4 h-4" />
           </Button>

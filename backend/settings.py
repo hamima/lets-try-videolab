@@ -10,8 +10,10 @@ import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+
+import auth
 
 BASE_DIR      = Path(__file__).parent.parent
 SETTINGS_FILE = BASE_DIR / "settings.json"
@@ -26,6 +28,7 @@ SETTINGS_KEYS = [
     {"key": "USE_OPENROUTER",     "label": "Use OpenRouter (alternative AI provider)", "secret": False, "type": "bool"},
     {"key": "MOCK_AI",            "label": "Mock AI (dev mode)", "secret": False, "type": "bool"},
     {"key": "ENABLE_FULL_PIPELINE", "label": "Enable Full Pipeline Auto-Run", "secret": False, "type": "bool"},
+    {"key": "GOOGLE_CLIENT_ID",   "label": "Google OAuth Client ID", "secret": False},
 ]
 
 
@@ -57,12 +60,12 @@ class UpdateSettingsRequest(BaseModel):
 
 
 @router.get("/settings")
-def get_settings():
+def get_settings(_admin: auth.CurrentUser = Depends(auth.require_admin)):
     return {"fields": SETTINGS_KEYS, "values": load()}
 
 
 @router.put("/settings")
-def update_settings(body: UpdateSettingsRequest):
+def update_settings(body: UpdateSettingsRequest, _admin: auth.CurrentUser = Depends(auth.require_admin)):
     allowed = {s["key"] for s in SETTINGS_KEYS}
     current = load()
     current.update({k: v for k, v in body.settings.items() if k in allowed})

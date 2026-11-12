@@ -1,12 +1,19 @@
 import axios from 'axios'
 
-const http = axios.create({ baseURL: '/tasks' })
+const http = axios.create({ baseURL: '/tasks', withCredentials: true })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export interface CurrentUser {
+  email: string
+  user_id: string
+  is_admin: boolean
+}
 
 export interface RunSummary {
   domain: string
   run_id: string
+  owner: string | null  // only populated for admins viewing another user's run
   workspace: string
   created_at: string | null
   active: boolean
@@ -121,6 +128,24 @@ export type StepContent =
 
 // ─── API functions ────────────────────────────────────────────────────────────
 
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+
+export async function signInWithGoogle(credential: string): Promise<CurrentUser> {
+  const { data } = await http.post<CurrentUser>('/auth/google', { credential })
+  return data
+}
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  const { data } = await http.get<CurrentUser>('/auth/me')
+  return data
+}
+
+export async function signOut(): Promise<void> {
+  await http.post('/auth/logout')
+}
+
+// ─── Runs ─────────────────────────────────────────────────────────────────────
+
 export async function listRuns(domain?: string): Promise<RunSummary[]> {
   const params = domain ? { domain } : {}
   const { data } = await http.get<RunSummary[]>('/runs', { params })
@@ -164,12 +189,12 @@ export async function estimateCost(
   return data
 }
 
-export async function continueRun(domain: string, runId: string): Promise<void> {
-  await http.post(`/runs/${domain}/${runId}/continue`)
+export async function continueRun(domain: string, runId: string, owner?: string): Promise<void> {
+  await http.post(`/runs/${domain}/${runId}/continue`, null, { params: owner ? { owner } : {} })
 }
 
-export async function deleteRun(domain: string, runId: string): Promise<void> {
-  await http.delete(`/runs/${domain}/${runId}`)
+export async function deleteRun(domain: string, runId: string, owner?: string): Promise<void> {
+  await http.delete(`/runs/${domain}/${runId}`, { params: owner ? { owner } : {} })
 }
 
 export async function updateStepContent(
@@ -177,21 +202,22 @@ export async function updateStepContent(
   runId: string,
   stepId: string,
   data: { content?: string; sections?: ResearchSection[]; scenes?: Scene[]; asset_scenes?: AssetScene[] },
+  owner?: string,
 ): Promise<void> {
-  await http.put(`/runs/${domain}/${runId}/steps/${stepId}/content`, data)
+  await http.put(`/runs/${domain}/${runId}/steps/${stepId}/content`, data, { params: owner ? { owner } : {} })
 }
 
-export async function getRunStatus(domain: string, runId: string): Promise<RunStatus> {
-  const { data } = await http.get<RunStatus>(`/runs/${domain}/${runId}`)
+export async function getRunStatus(domain: string, runId: string, owner?: string): Promise<RunStatus> {
+  const { data } = await http.get<RunStatus>(`/runs/${domain}/${runId}`, { params: owner ? { owner } : {} })
   return data
 }
 
-export async function runStep(domain: string, runId: string, stepId: string, force = false): Promise<void> {
-  await http.post(`/runs/${domain}/${runId}/steps/${stepId}`, { force })
+export async function runStep(domain: string, runId: string, stepId: string, force = false, owner?: string): Promise<void> {
+  await http.post(`/runs/${domain}/${runId}/steps/${stepId}`, { force }, { params: owner ? { owner } : {} })
 }
 
-export async function getStepContent(domain: string, runId: string, stepId: string): Promise<StepContent> {
-  const { data } = await http.get<StepContent>(`/runs/${domain}/${runId}/steps/${stepId}/content`)
+export async function getStepContent(domain: string, runId: string, stepId: string, owner?: string): Promise<StepContent> {
+  const { data } = await http.get<StepContent>(`/runs/${domain}/${runId}/steps/${stepId}/content`, { params: owner ? { owner } : {} })
   return data
 }
 
@@ -201,8 +227,9 @@ export async function saveAssetFiles(
   sceneId: string,
   assetId: string,
   files: { filename: string; content: string }[],
+  owner?: string,
 ): Promise<void> {
-  await http.put(`/runs/${domain}/${runId}/assets/${sceneId}/${assetId}`, { files })
+  await http.put(`/runs/${domain}/${runId}/assets/${sceneId}/${assetId}`, { files }, { params: owner ? { owner } : {} })
 }
 
 export async function regenerateAssetImage(
@@ -210,9 +237,12 @@ export async function regenerateAssetImage(
   runId: string,
   sceneId: string,
   assetId: string,
+  owner?: string,
 ): Promise<{ url: string }> {
   const { data } = await http.post<{ url: string }>(
     `/runs/${domain}/${runId}/assets/${sceneId}/${assetId}/regenerate-image`,
+    null,
+    { params: owner ? { owner } : {} },
   )
   return data
 }
@@ -222,9 +252,12 @@ export async function animateAsset(
   runId: string,
   sceneId: string,
   assetId: string,
+  owner?: string,
 ): Promise<{ url: string }> {
   const { data } = await http.post<{ url: string }>(
     `/runs/${domain}/${runId}/assets/${sceneId}/${assetId}/animate`,
+    null,
+    { params: owner ? { owner } : {} },
   )
   return data
 }
@@ -235,13 +268,14 @@ export async function uploadAssetImage(
   sceneId: string,
   assetId: string,
   file: File,
+  owner?: string,
 ): Promise<{ url: string }> {
   const form = new FormData()
   form.append('file', file)
   const { data } = await http.post<{ url: string }>(
     `/runs/${domain}/${runId}/assets/${sceneId}/${assetId}/image`,
     form,
-    { headers: { 'Content-Type': 'multipart/form-data' } },
+    { headers: { 'Content-Type': 'multipart/form-data' }, params: owner ? { owner } : {} },
   )
   return data
 }
