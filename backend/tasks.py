@@ -108,7 +108,7 @@ STEPS = [
     {"id": "14", "name": "Asset Inventory",               "type": "script",           "script": "generate_inventory.py",                                         "output": "asset_inventory.txt"},
     {"id": "15", "name": "Narration Timing",              "type": "script",           "script": "analyze_timing.py",                                             "output": "narration_timing.json"},
     {"id": "16", "name": "Edit Decision List",            "type": "gemini",           "inputs": {"asset_inventory": "asset_inventory.txt", "narration_timing": "narration_timing.json"}, "output": "edl.json"},
-    {"id": "17", "name": "Final Assembly",                "type": "script",           "script": "assemble.py",                                                   "output": "output/final_video.mp4"},
+    {"id": "17", "name": "Final Assembly",                "type": "script",           "script": "stitch_video.py",                                                   "output": "output/final_video.mp4"},
     {"id": "18", "name": "Platform Metadata",             "type": "gemini",           "prompt_file": "02b_platform_metadata.md", "inputs": {"research_dossier": "research_dossier.md", "story_script": "story_script.md"}, "output": "platform_metadata.json"},
 ]
 

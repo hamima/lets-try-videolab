@@ -1,0 +1,183 @@
+{
+  "sample_rate": 24000,
+  "voice": "af_heart",
+  "wpm_target": [
+    140,
+    165
+  ],
+  "total_duration_sec": 12.125,
+  "scene_count": 2,
+  "scenes": [
+    {
+      "scene": 1,
+      "file": "scene_01.wav",
+      "start_sec": 0.0,
+      "end_sec": 8.0,
+      "duration_sec": 8.0,
+      "speed": 0.901,
+      "est_wpm": 152.5,
+      "actual_wpm": 127.5,
+      "word_count": 17,
+      "words": [
+        {
+          "word": "Innovation",
+          "start": 0.0,
+          "end": 0.4
+        },
+        {
+          "word": "starts",
+          "start": 0.5,
+          "end": 0.9
+        },
+        {
+          "word": "with",
+          "start": 1.0,
+          "end": 1.4
+        },
+        {
+          "word": "a",
+          "start": 1.5,
+          "end": 1.9
+        },
+        {
+          "word": "single",
+          "start": 2.0,
+          "end": 2.4
+        },
+        {
+          "word": "idea.",
+          "start": 2.5,
+          "end": 2.9
+        },
+        {
+          "word": "AI",
+          "start": 3.0,
+          "end": 3.4
+        },
+        {
+          "word": "is",
+          "start": 3.5,
+          "end": 3.9
+        },
+        {
+          "word": "changing",
+          "start": 4.0,
+          "end": 4.4
+        },
+        {
+          "word": "how",
+          "start": 4.5,
+          "end": 4.9
+        },
+        {
+          "word": "we",
+          "start": 5.0,
+          "end": 5.4
+        },
+        {
+          "word": "build.",
+          "start": 5.5,
+          "end": 5.9
+        },
+        {
+          "word": "Technology",
+          "start": 6.0,
+          "end": 6.4
+        },
+        {
+          "word": "moves",
+          "start": 6.5,
+          "end": 6.9
+        },
+        {
+          "word": "fast.",
+          "start": 7.0,
+          "end": 7.4
+        },
+        {
+          "word": "We",
+          "start": 7.5,
+          "end": 7.9
+        },
+        {
+          "word": "adapt.",
+          "start": 8.0,
+          "end": 8.4
+        }
+      ]
+    },
+    {
+      "scene": 2,
+      "file": "scene_02.wav",
+      "start_sec": 8.0,
+      "end_sec": 12.125,
+      "duration_sec": 4.125,
+      "speed": 1.098,
+      "est_wpm": 152.5,
+      "actual_wpm": 174.5,
+      "word_count": 12,
+      "words": [
+        {
+          "word": "The",
+          "start": 8.0,
+          "end": 8.2922
+        },
+        {
+          "word": "future",
+          "start": 8.3922,
+          "end": 8.6844
+        },
+        {
+          "word": "belongs",
+          "start": 8.7844,
+          "end": 9.0766
+        },
+        {
+          "word": "to",
+          "start": 9.1766,
+          "end": 9.4688
+        },
+        {
+          "word": "those",
+          "start": 9.5688,
+          "end": 9.8609
+        },
+        {
+          "word": "who",
+          "start": 9.9609,
+          "end": 10.2531
+        },
+        {
+          "word": "prepare",
+          "start": 10.3531,
+          "end": 10.6453
+        },
+        {
+          "word": "today.",
+          "start": 10.7453,
+          "end": 11.0375
+        },
+        {
+          "word": "Thank",
+          "start": 11.1375,
+          "end": 11.4297
+        },
+        {
+          "word": "you",
+          "start": 11.5297,
+          "end": 11.8219
+        },
+        {
+          "word": "for",
+          "start": 11.9219,
+          "end": 12.2141
+        },
+        {
+          "word": "watching.",
+          "start": 12.3141,
+          "end": 12.6062
+        }
+      ]
+    }
+  ]
+}

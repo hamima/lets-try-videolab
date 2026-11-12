@@ -1,0 +1,17 @@
+{
+  "length_target_seconds": 90,
+  "audience": "general adult",
+  "title_end_card_style": "clean minimal (white text on dark)",
+  "fit_mode": "contain",
+  "music_mood": "ambient / neutral",
+  "show_section_titles": true,
+  "voice_sample_voices": [
+    "af_heart",
+    "af_bella",
+    "bf_emma",
+    "am_michael"
+  ],
+  "wpm_min": 140,
+  "wpm_max": 165,
+  "selected_voice": "af_heart"
+}

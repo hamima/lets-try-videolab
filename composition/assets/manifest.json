@@ -1,0 +1,36 @@
+{
+  "scenes": [
+    {
+      "scene": 1,
+      "title": "Innovation",
+      "backdrop": "assets/scene_2/backdrop.png",
+      "fit_mode": "contain",
+      "fonts": [
+        {"family": "MainFont", "url": "../../fonts/MainFont.ttf"}
+      ],
+      "assets": [
+        {"src": "assets/scene_1/img_a.png", "cue_word": "Innovation", "start": 0.5, "end": 4.0, "fit": "contain", "zoom": 0.03},
+        {"src": "assets/scene_1/img_b.png", "cue_word": "Technology", "start": 4.0, "end": 7.0, "fit": "contain", "zoom": 0.03}
+      ],
+      "text": [
+        {"html": "<b>AI is changing how we build</b>", "x": 100, "y": 900, "start": 1.0, "end": 6.0, "font_size": 24, "color": "#ffffff"}
+      ],
+      "lowerThird": {"kicker": "SECTION 1", "title": "Innovation", "show_seconds": 2},
+      "titleCard": null,
+      "endCard": null
+    },
+    {
+      "scene": 2,
+      "title": "The Future",
+      "backdrop": "assets/scene_2/backdrop.png",
+      "fit_mode": "contain",
+      "assets": [
+        {"src": "assets/scene_2/img_c.png", "cue_word": "future", "start": 0.5, "end": 6.0, "fit": "contain", "zoom": 0.03}
+      ],
+      "text": [],
+      "lowerThird": {"kicker": "SECTION 2", "title": "The Future", "show_seconds": 2},
+      "titleCard": null,
+      "endCard": {"title": "Thank you", "sub": "End of video", "duration": 3}
+    }
+  ]
+}

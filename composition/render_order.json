@@ -1,0 +1,16 @@
+[
+  {
+    "scene": 1,
+    "file": "scene_01.html",
+    "duration": 8.0,
+    "start_sec": 0.0,
+    "end_sec": 8.0
+  },
+  {
+    "scene": 2,
+    "file": "scene_02.html",
+    "duration": 4.125,
+    "start_sec": 8.0,
+    "end_sec": 12.125
+  }
+]

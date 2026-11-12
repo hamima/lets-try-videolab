@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scene {{scene_index}} — {{scene_title}}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: #0a0a0a; color: #fff; font-family: "MainFont", sans-serif; }
+  .scene { width: 100%; height: 100%; position: relative; }
+
+  /* ── backdrop (blurred or solid) ── */
+  .backdrop { position: absolute; inset: 0; z-index: 0; background: #111; }
+  .backdrop img { width: 100%; height: 100%; object-fit: cover; filter: blur(40px) brightness(0.35); }
+
+  /* ── content image (contain fit, never upscale > 1.5x) ── */
+  .content-wrap { position: absolute; inset: 0; z-index: 1; display: flex; align-items: center; justify-content: center; }
+  .content-img { position: relative; max-width: 100%; max-height: 100%; display: block; }
+  .content-img[data-fit="contain"] { object-fit: contain; }
+  .content-img[data-fit="fill"] { object-fit: cover; width: 100%; height: 100%; }
+
+  /* ── text ── */
+  .text-layer { position: absolute; z-index: 5; pointer-events: none; }
+  .lower-third { position: absolute; left: 60px; bottom: 90px; z-index: 6; pointer-events: none; }
+  .lower-third .kicker { font-size: 20px; letter-spacing: 2px; text-transform: uppercase; opacity: 0.8; }
+  .lower-third .title { font-size: 34px; font-weight: 700; line-height: 1.15; }
+  .title-card, .end-card { position: absolute; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 60px; pointer-events: none; }
+  .title-card .big { font-size: 72px; font-weight: 800; line-height: 1.05; }
+  .title-card .sub { font-size: 28px; opacity: 0.85; margin-top: 18px; }
+  .end-card .big { font-size: 64px; font-weight: 800; }
+  .end-card .sub { font-size: 26px; opacity: 0.8; margin-top: 14px; }
+
+  .cue-word { font-weight: 700; }
+
+  /* accessibility: minimum 20px, contrast handled via CSS colours */
+  .text-layer * { font-size: 20px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<script src="driver.js"></script>
+<script>
+  // Injected by compose.py: window.__SCENE_CONFIG__
+  (function(){
+    const cfg = window.__SCENE_CONFIG__ = {"scene_index": 0, "scene_title": "Innovation", "duration": 8.0, "fit_mode": "contain", "backdrop": "assets/scene_2/backdrop.png", "assets": [{"src": "assets/scene_1/img_a.png", "cue_word": "Innovation", "start": 0.0, "end": 0.5, "fit": "contain", "pan_x": 0, "pan_y": 0, "zoom": 0.03}, {"src": "assets/scene_1/img_b.png", "cue_word": "Technology", "start": 6.0, "end": 6.5, "fit": "contain", "pan_x": 0, "pan_y": 0, "zoom": 0.03}], "text": [{"html": "<b>AI is changing how we build</b>", "x": 100, "y": 900, "start": 1.0, "end": 6.0, "font_size": 24, "color": "#ffffff"}], "lowerThird": {"kicker": "SECTION 1", "title": "Innovation", "show_seconds": 2}, "titleCard": null, "endCard": null, "fonts": [{"family": "MainFont", "url": "../../fonts/MainFont.ttf"}]};
+    if (typeof initScene === "function") initScene(cfg);
+  })();
+</script>
+</body>
+</html>
