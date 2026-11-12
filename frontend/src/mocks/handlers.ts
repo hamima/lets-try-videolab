@@ -142,6 +142,14 @@ function buildStepList(r: RunState) {
   })
 }
 
+// Mirrors the backend's _extract_topic: pulls the TOPIC section out of the
+// domain's mocked step-1 research content, if any.
+function getTopic(domain: string): string | null {
+  const research = CONTENT[domain]?.['1'] as { sections?: { label: string; content: string }[] } | undefined
+  const topicSection = research?.sections?.find(s => s.label.trim().toUpperCase() === 'TOPIC')
+  return topicSection?.content.split('\n')[0].trim() ?? null
+}
+
 function toSummary(r: RunState) {
   const { completed, activeStep, active } = resolveRun(r)
   return {
@@ -155,6 +163,7 @@ function toSummary(r: RunState) {
     steps_failed: r.failed_steps.length,
     steps_total: 18,
     videos: r.videos,
+    topic: getTopic(r.domain),
   }
 }
 
@@ -1096,6 +1105,7 @@ export const tasksHandlers = [
       active: active || reruns.some(e => e.domain === run.domain && e.runId === run.run_id && Date.now() - e.startedAt < RERUN_DURATION_MS),
       active_step: activeStep,
       steps,
+      topic: getTopic(run.domain),
     })
   }),
 

@@ -404,3 +404,21 @@ def test_parse_asset_acquisition_plain_asset_id_not_blank():
     fields = {f["label"]: f["content"] for f in scenes[0]["assets"][0]["fields"]}
     assert fields["TYPE"] == "ai_image"
     assert fields["DURATION"] == "20 seconds"
+
+
+# ─────────────────────────────────────────────────────────────
+# _extract_topic
+# ─────────────────────────────────────────────────────────────
+
+def test_extract_topic_reads_first_line_of_topic_section(tmp_path):
+    (tmp_path / "research_dossier.md").write_text(RESEARCH_PLAIN)
+    assert tasks._extract_topic(tmp_path) == "The De Minimis Loophole: How Shein and Temu Conquered America"
+
+
+def test_extract_topic_missing_file_returns_none(tmp_path):
+    assert tasks._extract_topic(tmp_path) is None
+
+
+def test_extract_topic_missing_section_returns_none(tmp_path):
+    (tmp_path / "research_dossier.md").write_text("VIRALITY SCORE\n\n9/10\n")
+    assert tasks._extract_topic(tmp_path) is None

@@ -134,42 +134,47 @@ export default function RunDetailPage() {
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)' }}>
       {/* Sub-header */}
-      <div className="border-b px-4 py-3 flex items-center justify-between shrink-0 bg-background">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" className="gap-1.5 -ml-1" onClick={() => navigate('/tasks')}>
-            <ArrowLeft className="w-4 h-4" /> Pipeline
-          </Button>
-          <div className="h-4 w-px bg-border" />
-          <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', DOMAIN_COLORS[domain] ?? DOMAIN_COLORS.general)}>
-            {domain.replace('_', ' ')}
-          </span>
-          <span className="text-sm text-muted-foreground">{date}</span>
-          {run?.active && (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Active
+      <div className="border-b px-4 py-3 flex flex-col gap-1.5 shrink-0 bg-background">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" className="gap-1.5 -ml-1" onClick={() => navigate('/tasks')}>
+              <ArrowLeft className="w-4 h-4" /> Pipeline
+            </Button>
+            <div className="h-4 w-px bg-border" />
+            <span className={cn('text-xs font-semibold px-2 py-0.5 rounded-full', DOMAIN_COLORS[domain] ?? DOMAIN_COLORS.general)}>
+              {domain.replace('_', ' ')}
             </span>
-          )}
+            <span className="text-sm text-muted-foreground">{date}</span>
+            {run?.active && (
+              <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Active
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={handleFreshStart}>
+              <Plus className="w-3.5 h-3.5" /> Fresh Start
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!run}
+                  onClick={() => run && navigate(`/tasks/${domain}/${runId}/wizard/${firstReachableStepId(run.steps)}${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`)}
+                >
+                  <Compass className="w-3.5 h-3.5" /> Wizard View
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Open this run as a step-by-step wizard</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleFreshStart}>
-            <Plus className="w-3.5 h-3.5" /> Fresh Start
-          </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                disabled={!run}
-                onClick={() => run && navigate(`/tasks/${domain}/${runId}/wizard/${firstReachableStepId(run.steps)}${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`)}
-              >
-                <Compass className="w-3.5 h-3.5" /> Wizard View
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Open this run as a step-by-step wizard</TooltipContent>
-          </Tooltip>
-        </div>
+        {run?.topic && (
+          <p className="text-sm font-medium text-foreground truncate" title={run.topic}>{run.topic}</p>
+        )}
       </div>
 
       {/* Body */}

@@ -1200,6 +1200,7 @@ def get_run_status(
         "active": active_info is not None,
         "active_step": active_step_id,
         "steps": steps_out,
+        "topic": _extract_topic(ws),
     }
 
 
@@ -1318,6 +1319,7 @@ def list_runs(
                     "steps_failed": len(state.get("failed", [])),
                     "steps_total": len(STEPS),
                     "videos": videos,
+                    "topic": _extract_topic(ws_dir),
                 })
 
     return result
@@ -1374,6 +1376,18 @@ def _parse_sections(text: str) -> list:
 
 def _serialize_sections(sections: list) -> str:
     return "\n\n".join(f"{s['label']}\n\n{s['content'].strip()}" for s in sections)
+
+
+def _extract_topic(ws: Path) -> Optional[str]:
+    """Pull the research topic out of research_dossier.md's TOPIC section, if present."""
+    fp = ws / "research_dossier.md"
+    if not fp.exists():
+        return None
+    for section in _parse_sections(fp.read_text()):
+        if section["label"].strip().upper() == "TOPIC":
+            content = section["content"].strip()
+            return content.splitlines()[0].strip() if content else None
+    return None
 
 
 def _split_visual_purpose(value: str) -> tuple:

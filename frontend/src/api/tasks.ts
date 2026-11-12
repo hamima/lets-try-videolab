@@ -22,6 +22,7 @@ export interface RunSummary {
   steps_failed: number
   steps_total: number
   videos: string[]
+  topic: string | null
 }
 
 export interface StepDetail {
@@ -39,6 +40,7 @@ export interface RunStatus {
   active: boolean
   active_step: string | null
   steps: StepDetail[]
+  topic: string | null
 }
 
 export interface AssetField {

@@ -60,7 +60,6 @@ export default function GeneratePage() {
 
   // Form state
   const [domain, setDomain] = useState('political')
-  const [fresh, setFresh] = useState(false)
   const [durationRange, setDurationRange] = useState<[number, number]>(DEFAULT_DURATION_RANGE)
   const [videoSplitPercent, setVideoSplitPercent] = useState(DEFAULT_VIDEO_SPLIT_PERCENT)
 
@@ -132,26 +131,17 @@ export default function GeneratePage() {
       duration_max_minutes: durationMax,
       video_split_percent: videoSplitPercent,
     }
-    if (fresh) {
-      // Fresh start: preview flow — run step 1 only, then wait for approval
-      setStage('waiting')
-      try {
-        const res = await startRun(domain, true, true, videoConfig)
-        const run = { domain: res.domain, run_id: res.run_id }
-        setPendingRun(run)
-        await waitForStep1(run)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Something went wrong')
-        setStage('form')
-      }
-    } else {
-      // Resume: start full pipeline and navigate immediately
-      try {
-        const res = await startRun(domain, false, false, videoConfig)
-        navigate(`/tasks/${res.domain}/${res.run_id}`)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Something went wrong')
-      }
+    // Every generate is a fresh start: preview flow — run step 1 only, then
+    // wait for approval. Resuming an existing run happens from the pipeline page.
+    setStage('waiting')
+    try {
+      const res = await startRun(domain, true, true, videoConfig)
+      const run = { domain: res.domain, run_id: res.run_id }
+      setPendingRun(run)
+      await waitForStep1(run)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setStage('form')
     }
   }
 
@@ -267,7 +257,7 @@ export default function GeneratePage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>New Pipeline Run</CardTitle>
-          <CardDescription>Select a domain and choose whether to resume or start fresh.</CardDescription>
+          <CardDescription>Select a domain to generate a research topic for approval.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-1.5">
@@ -288,29 +278,6 @@ export default function GeneratePage() {
                 <p className="text-xs text-muted-foreground leading-relaxed">{DOMAIN_DESCRIPTIONS[domain].task}</p>
               </div>
             )}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Mode</Label>
-            <div className="flex rounded-lg border overflow-hidden">
-              <button
-                onClick={() => setFresh(false)}
-                className={`flex-1 px-3 py-2 text-sm transition-colors ${!fresh ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
-              >
-                Resume latest
-              </button>
-              <button
-                onClick={() => setFresh(true)}
-                className={`flex-1 px-3 py-2 text-sm transition-colors border-l ${fresh ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
-              >
-                Fresh start
-              </button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {fresh
-                ? 'Generates a research overview for your approval, then opens the pipeline for you to run steps individually.'
-                : 'Resumes the latest workspace for this domain — run each step individually from there.'}
-            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -356,7 +323,7 @@ export default function GeneratePage() {
           {error && <p className="text-sm text-destructive">{error}</p>}
 
           <Button className="w-full" onClick={handleStart}>
-            {fresh ? 'Generate Preview' : 'Start Run'}
+            Generate Preview
           </Button>
         </CardContent>
       </Card>

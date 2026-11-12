@@ -67,6 +67,10 @@ function RunCard({ run, onClick, onDelete }: { run: RunSummary; onClick: () => v
           {status === 'partial' && <Badge variant="secondary">Partial</Badge>}
         </div>
 
+        {run.topic && (
+          <p className="text-sm font-medium text-foreground mb-1 line-clamp-2">{run.topic}</p>
+        )}
+
         <p className="text-xs text-muted-foreground mb-3">{date}</p>
 
         <Progress value={pct} className="h-1.5 mb-2" />
