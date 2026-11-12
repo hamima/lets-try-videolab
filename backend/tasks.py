@@ -17,11 +17,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
 
-from fastapi import APIRouter, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+import auth
 import cost_estimate
+from auth import CurrentUser
 
 
 # ─────────────────────────────────────────────────────────────
@@ -150,15 +152,15 @@ def _is_active(domain: str, run_id: str) -> bool:
 # Workspace helpers
 # ─────────────────────────────────────────────────────────────
 
-def new_workspace(domain: str) -> tuple[str, Path]:
+def new_workspace(user_id: str, domain: str) -> tuple[str, Path]:
     ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    ws = WORKSPACE_ROOT / domain / ts
+    ws = WORKSPACE_ROOT / user_id / domain / ts
     ws.mkdir(parents=True, exist_ok=True)
     return ts, ws
 
 
-def latest_workspace(domain: str) -> tuple[str, Path]:
-    domain_dir = WORKSPACE_ROOT / domain
+def latest_workspace(user_id: str, domain: str) -> tuple[str, Path]:
+    domain_dir = WORKSPACE_ROOT / user_id / domain
     if not domain_dir.exists():
         raise RuntimeError(f"No workspaces found for domain '{domain}'")
     candidates = sorted(
@@ -170,11 +172,21 @@ def latest_workspace(domain: str) -> tuple[str, Path]:
     return candidates[0].name, candidates[0]
 
 
-def find_workspace(domain: str, run_id: str) -> Path:
-    ws = WORKSPACE_ROOT / domain / run_id
+def find_workspace(user_id: str, domain: str, run_id: str) -> Path:
+    ws = WORKSPACE_ROOT / user_id / domain / run_id
     if not ws.exists() or not ws.is_dir():
         raise RuntimeError(f"No workspace found for run_id '{run_id}' in domain '{domain}'")
     return ws
+
+
+def _file_url(domain: str, run_id: str, rel_path, owner_id: str, current_user: CurrentUser) -> str:
+    """Build a /tasks/files/... URL, carrying the `owner` query param only
+    when it's actually needed (an admin viewing someone else's workspace) —
+    non-admins never emit it, since serve_file ignores it for them anyway."""
+    url = f"/tasks/files/{domain}/{run_id}/{rel_path}"
+    if current_user.is_admin and owner_id != current_user.user_id:
+        url += f"?owner={owner_id}"
+    return url
 
 
 def _natural_key(path: Path) -> list:
@@ -1037,14 +1049,15 @@ def get_cost_estimate(duration_min: int = Query(...), duration_max: int = Query(
 
 
 @router.post("/runs")
-def start_run(body: StartRunRequest):
+def start_run(body: StartRunRequest, current_user: CurrentUser = Depends(auth.get_current_user)):
     if body.domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{body.domain}'. Supported: {SUPPORTED_DOMAINS}")
 
     domain = body.domain
+    user_id = current_user.user_id
 
     if body.fresh:
-        run_id, ws = new_workspace(domain)
+        run_id, ws = new_workspace(user_id, domain)
         state = {
             "completed": [],
             "failed": [],
@@ -1055,10 +1068,10 @@ def start_run(body: StartRunRequest):
         save_state(ws, state)
     else:
         try:
-            run_id, ws = latest_workspace(domain)
+            run_id, ws = latest_workspace(user_id, domain)
             state = load_state(ws)
         except RuntimeError:
-            run_id, ws = new_workspace(domain)
+            run_id, ws = new_workspace(user_id, domain)
             state = {
                 "completed": [],
                 "failed": [],
@@ -1109,7 +1122,11 @@ def start_run(body: StartRunRequest):
 
 
 @router.post("/runs/{domain}/{run_id}/steps/{step_id}")
-def run_step(domain: str, run_id: str, step_id: str, body: RunStepRequest):
+def run_step(
+    domain: str, run_id: str, step_id: str, body: RunStepRequest,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
 
@@ -1118,7 +1135,7 @@ def run_step(domain: str, run_id: str, step_id: str, body: RunStepRequest):
         raise HTTPException(status_code=400, detail=f"Unknown step '{step_id}'. Valid IDs: {list(STEPS_BY_ID)}")
 
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(auth.resolve_owner(current_user, owner), domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1145,12 +1162,16 @@ def run_step(domain: str, run_id: str, step_id: str, body: RunStepRequest):
 
 
 @router.get("/runs/{domain}/{run_id}")
-def get_run_status(domain: str, run_id: str):
+def get_run_status(
+    domain: str, run_id: str,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
 
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(auth.resolve_owner(current_user, owner), domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1183,13 +1204,17 @@ def get_run_status(domain: str, run_id: str):
 
 
 @router.delete("/runs/{domain}/{run_id}")
-def delete_run(domain: str, run_id: str):
+def delete_run(
+    domain: str, run_id: str,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     """Delete a workspace — used to discard a rejected preview run."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
 
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(auth.resolve_owner(current_user, owner), domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1202,14 +1227,18 @@ def delete_run(domain: str, run_id: str):
 
 
 @router.post("/runs/{domain}/{run_id}/continue")
-def continue_run(domain: str, run_id: str):
+def continue_run(
+    domain: str, run_id: str,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     """Resume the full pipeline after preview approval — runs all remaining steps."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
     if not ENABLE_FULL_PIPELINE():
         raise HTTPException(status_code=409, detail="Full pipeline run is disabled")
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(auth.resolve_owner(current_user, owner), domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1230,7 +1259,10 @@ def continue_run(domain: str, run_id: str):
 
 
 @router.get("/runs")
-def list_runs(domain: Optional[str] = Query(default=None)):
+def list_runs(
+    domain: Optional[str] = Query(default=None),
+    current_user: CurrentUser = Depends(auth.get_current_user),
+):
     if domain is not None and domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
 
@@ -1238,47 +1270,55 @@ def list_runs(domain: Optional[str] = Query(default=None)):
 
     domains_to_scan = [domain] if domain else SUPPORTED_DOMAINS
 
-    for d in domains_to_scan:
-        domain_dir = WORKSPACE_ROOT / d
-        if not domain_dir.exists():
-            continue
+    # Admins see every user's workspaces; everyone else only ever sees their own.
+    if current_user.is_admin:
+        user_ids = sorted(p.name for p in WORKSPACE_ROOT.iterdir()) if WORKSPACE_ROOT.exists() else []
+    else:
+        user_ids = [current_user.user_id]
 
-        for ws_dir in sorted(domain_dir.iterdir(), reverse=True):
-            if not ws_dir.is_dir() or not re.match(r"\d{4}-\d{2}-\d{2}_\d{6}", ws_dir.name):
+    for uid in user_ids:
+        for d in domains_to_scan:
+            domain_dir = WORKSPACE_ROOT / uid / d
+            if not domain_dir.exists():
                 continue
 
-            run_id = ws_dir.name
-            state = load_state(ws_dir)
+            for ws_dir in sorted(domain_dir.iterdir(), reverse=True):
+                if not ws_dir.is_dir() or not re.match(r"\d{4}-\d{2}-\d{2}_\d{6}", ws_dir.name):
+                    continue
 
-            # Parse created_at from folder name
-            try:
-                created_at = datetime.strptime(run_id, "%Y-%m-%d_%H%M%S").isoformat()
-            except ValueError:
-                created_at = None
+                run_id = ws_dir.name
+                state = load_state(ws_dir)
 
-            # Collect animated.mp4 files
-            assets_dir = ws_dir / "assets"
-            videos = []
-            if assets_dir.exists():
-                videos = [
-                    str(p.relative_to(BASE_DIR))
-                    for p in sorted(assets_dir.rglob("animated.mp4"))
-                ]
+                # Parse created_at from folder name
+                try:
+                    created_at = datetime.strptime(run_id, "%Y-%m-%d_%H%M%S").isoformat()
+                except ValueError:
+                    created_at = None
 
-            active_info = _get_active(d, run_id)
+                # Collect animated.mp4 files
+                assets_dir = ws_dir / "assets"
+                videos = []
+                if assets_dir.exists():
+                    videos = [
+                        str(p.relative_to(BASE_DIR))
+                        for p in sorted(assets_dir.rglob("animated.mp4"))
+                    ]
 
-            result.append({
-                "domain": d,
-                "run_id": run_id,
-                "workspace": str(ws_dir.relative_to(BASE_DIR)),
-                "created_at": created_at,
-                "active": active_info is not None,
-                "active_step": active_info["step_id"] if active_info else None,
-                "steps_completed": len(state.get("completed", [])),
-                "steps_failed": len(state.get("failed", [])),
-                "steps_total": len(STEPS),
-                "videos": videos,
-            })
+                active_info = _get_active(d, run_id)
+
+                result.append({
+                    "domain": d,
+                    "run_id": run_id,
+                    "owner": uid if current_user.is_admin else None,
+                    "workspace": str(ws_dir.relative_to(BASE_DIR)),
+                    "created_at": created_at,
+                    "active": active_info is not None,
+                    "active_step": active_info["step_id"] if active_info else None,
+                    "steps_completed": len(state.get("completed", [])),
+                    "steps_failed": len(state.get("failed", [])),
+                    "steps_total": len(STEPS),
+                    "videos": videos,
+                })
 
     return result
 
@@ -1641,13 +1681,18 @@ STEP_CONTENT_CONFIG: dict = {
 
 
 @router.get("/runs/{domain}/{run_id}/steps/{step_id}/content")
-def get_step_content(domain: str, run_id: str, step_id: str):
+def get_step_content(
+    domain: str, run_id: str, step_id: str,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
     if STEPS_BY_ID.get(step_id) is None:
         raise HTTPException(status_code=400, detail=f"Unknown step '{step_id}'")
+    owner_id = auth.resolve_owner(current_user, owner)
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(owner_id, domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1697,13 +1742,13 @@ def get_step_content(domain: str, run_id: str, step_id: str):
 
     if kind == "audio":
         fp = ws / cfg["file"]
-        url = f"/tasks/files/{domain}/{run_id}/{cfg['file']}" if fp.exists() else None
+        url = _file_url(domain, run_id, cfg["file"], owner_id, current_user) if fp.exists() else None
         return {"kind": kind, "url": url}
 
     if kind == "video":
         raw = cfg["file"]
         fp = ws / raw
-        url = f"/tasks/files/{domain}/{run_id}/{raw}" if fp.exists() else None
+        url = _file_url(domain, run_id, raw, owner_id, current_user) if fp.exists() else None
         return {"kind": kind, "url": url}
 
     if kind == "image_list":
@@ -1732,7 +1777,7 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                 meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
                 images.append({
                     "path": rel,
-                    "url": f"/tasks/files/{domain}/{run_id}/{rel}",
+                    "url": _file_url(domain, run_id, rel, owner_id, current_user),
                     "label": str(f.parent.relative_to(assets_dir)),
                     "scene_id": scene_id,
                     "asset_id": asset_id,
@@ -1759,7 +1804,7 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                 image_url = None
                 ip = f.parent / "image.png"
                 if ip.exists():
-                    image_url = f"/tasks/files/{domain}/{run_id}/{ip.relative_to(ws)}"
+                    image_url = _file_url(domain, run_id, ip.relative_to(ws), owner_id, current_user)
 
                 items.append({
                     "path": rel,
@@ -1790,13 +1835,13 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                 cp = asset_dir / "image.png"
                 if cp.exists():
                     rel = str(cp.relative_to(ws))
-                    thumbnail_url = f"/tasks/files/{domain}/{run_id}/{rel}"
+                    thumbnail_url = _file_url(domain, run_id, rel, owner_id, current_user)
 
                 mp4 = asset_dir / "animated.mp4"
                 video_url = None
                 if mp4.exists():
                     rel = str(mp4.relative_to(ws))
-                    video_url = f"/tasks/files/{domain}/{run_id}/{rel}"
+                    video_url = _file_url(domain, run_id, rel, owner_id, current_user)
 
                 txt_file = asset_dir / "animated.txt"
                 prompt = txt_file.read_text().strip() if txt_file.exists() else ""
@@ -1842,7 +1887,7 @@ def get_step_content(domain: str, run_id: str, step_id: str):
                             continue
                         if ftype == "image":
                             rel = str(fp2.relative_to(ws))
-                            files_out.append({"type": "image", "label": label, "filename": fname, "url": f"/tasks/files/{domain}/{run_id}/{rel}"})
+                            files_out.append({"type": "image", "label": label, "filename": fname, "url": _file_url(domain, run_id, rel, owner_id, current_user)})
                         else:
                             files_out.append({"type": "text", "label": label, "filename": fname, "content": fp2.read_text()})
                     if files_out:
@@ -1855,7 +1900,11 @@ def get_step_content(domain: str, run_id: str, step_id: str):
 
 
 @router.put("/runs/{domain}/{run_id}/steps/{step_id}/content")
-def update_step_content(domain: str, run_id: str, step_id: str, body: UpdateStepContentRequest):
+def update_step_content(
+    domain: str, run_id: str, step_id: str, body: UpdateStepContentRequest,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     """Overwrite a step's output file with edited content."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
@@ -1863,7 +1912,7 @@ def update_step_content(domain: str, run_id: str, step_id: str, body: UpdateStep
         raise HTTPException(status_code=400, detail=f"Unknown step '{step_id}'")
 
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(auth.resolve_owner(current_user, owner), domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1903,12 +1952,16 @@ def update_step_content(domain: str, run_id: str, step_id: str, body: UpdateStep
 
 
 @router.put("/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}")
-def save_asset_files(domain: str, run_id: str, scene_id: str, asset_id: str, body: SaveAssetFilesRequest):
+def save_asset_files(
+    domain: str, run_id: str, scene_id: str, asset_id: str, body: SaveAssetFilesRequest,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     """Save edited text files for a single asset."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(auth.resolve_owner(current_user, owner), domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1927,12 +1980,17 @@ def save_asset_files(domain: str, run_id: str, scene_id: str, asset_id: str, bod
 
 
 @router.post("/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/image")
-async def upload_asset_image(domain: str, run_id: str, scene_id: str, asset_id: str, file: UploadFile = File(...)):
+async def upload_asset_image(
+    domain: str, run_id: str, scene_id: str, asset_id: str, file: UploadFile = File(...),
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     """Upload a replacement image for an asset."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
+    owner_id = auth.resolve_owner(current_user, owner)
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(owner_id, domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1948,17 +2006,22 @@ async def upload_asset_image(domain: str, run_id: str, scene_id: str, asset_id: 
     rel = str(dest.relative_to(ws))
     return {
         "message": "Image uploaded",
-        "url": f"/tasks/files/{domain}/{run_id}/{rel}",
+        "url": _file_url(domain, run_id, rel, owner_id, current_user),
     }
 
 
 @router.post("/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/regenerate-image")
-def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: str):
+def regenerate_asset_image(
+    domain: str, run_id: str, scene_id: str, asset_id: str,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     """Delete the current image for an asset and regenerate it via Imagen/OpenRouter."""
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
+    owner_id = auth.resolve_owner(current_user, owner)
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(owner_id, domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -1977,7 +2040,7 @@ def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: st
         out = asset_dir / "image.png"
         generate_placeholder_image(out)
         rel = str(out.relative_to(ws))
-        return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
+        return {"url": _file_url(domain, run_id, rel, owner_id, current_user)}
 
     generated_txt = asset_dir / "generated.txt"
     if not generated_txt.exists():
@@ -1994,7 +2057,7 @@ def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: st
             blocked_marker.write_text(str(e))
             raise HTTPException(status_code=422, detail=f"Image generation failed: {e}")
         rel = str(out.relative_to(ws))
-        return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
+        return {"url": _file_url(domain, run_id, rel, owner_id, current_user)}
 
     try:
         from google import genai
@@ -2018,14 +2081,18 @@ def regenerate_asset_image(domain: str, run_id: str, scene_id: str, asset_id: st
     if response.generated_images:
         out.write_bytes(response.generated_images[0].image.image_bytes)
         rel = str(out.relative_to(ws))
-        return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
+        return {"url": _file_url(domain, run_id, rel, owner_id, current_user)}
     reason = getattr(response, "rai_filtered_reason", None) or "safety filter"
     blocked_marker.write_text(reason)
     raise HTTPException(status_code=422, detail=f"Image blocked by safety filter: {reason}")
 
 
 @router.post("/runs/{domain}/{run_id}/assets/{scene_id}/{asset_id}/animate")
-def animate_asset(domain: str, run_id: str, scene_id: str, asset_id: str):
+def animate_asset(
+    domain: str, run_id: str, scene_id: str, asset_id: str,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     """Delete the current animated.mp4 for an asset (if any) and animate it.
 
     For ai_video assets this calls the AI video model using animated.txt.
@@ -2033,8 +2100,9 @@ def animate_asset(domain: str, run_id: str, scene_id: str, asset_id: str):
     """
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
+    owner_id = auth.resolve_owner(current_user, owner)
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(owner_id, domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -2060,15 +2128,19 @@ def animate_asset(domain: str, run_id: str, scene_id: str, asset_id: str):
         raise HTTPException(status_code=422, detail=f"Animation failed: {e}")
 
     rel = str(out_mp4.relative_to(ws))
-    return {"url": f"/tasks/files/{domain}/{run_id}/{rel}"}
+    return {"url": _file_url(domain, run_id, rel, owner_id, current_user)}
 
 
 @router.get("/files/{domain}/{run_id}/{file_path:path}")
-def serve_file(domain: str, run_id: str, file_path: str):
+def serve_file(
+    domain: str, run_id: str, file_path: str,
+    current_user: CurrentUser = Depends(auth.get_current_user),
+    owner: Optional[str] = Query(default=None),
+):
     if domain not in SUPPORTED_DOMAINS:
         raise HTTPException(status_code=400, detail=f"Unknown domain '{domain}'")
     try:
-        ws = find_workspace(domain, run_id)
+        ws = find_workspace(auth.resolve_owner(current_user, owner), domain, run_id)
     except RuntimeError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -2096,6 +2168,7 @@ import settings as _settings
 app = FastAPI(title="VidLife Tasks API")
 app.include_router(router)
 app.include_router(_settings.router, prefix="/tasks")
+app.include_router(auth.router, prefix="/tasks")
 
 if __name__ == "__main__":
     import uvicorn

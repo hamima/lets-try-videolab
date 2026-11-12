@@ -23,6 +23,7 @@ export default function StepContentPanel({
   step,
   domain,
   runId,
+  owner,
   reloadKey,
   onRerun,
   onSaved,
@@ -30,6 +31,7 @@ export default function StepContentPanel({
   step: StepDetail | null
   domain: string
   runId: string
+  owner?: string
   reloadKey: number
   onRerun: () => void
   onSaved: () => void
@@ -42,11 +44,11 @@ export default function StepContentPanel({
     if (step.status === 'pending') { setContent(null); return }
 
     setLoading(true)
-    getStepContent(domain, runId, step.id)
+    getStepContent(domain, runId, step.id, owner)
       .then(setContent)
       .catch(() => setContent(null))
       .finally(() => setLoading(false))
-  }, [step?.id, step?.status, domain, runId, reloadKey])
+  }, [step?.id, step?.status, domain, runId, owner, reloadKey])
 
   if (!step) {
     return (
@@ -105,17 +107,17 @@ export default function StepContentPanel({
             content.kind === 'research' || content.kind === 'story' ? (
               <ResearchEditor
                 sections={content.sections}
-                onSave={async (sections) => { await updateStepContent(domain, runId, step.id, { sections }); onSaved() }}
+                onSave={async (sections) => { await updateStepContent(domain, runId, step.id, { sections }, owner); onSaved() }}
               />
             ) : content.kind === 'scene_plan' ? (
               <ScenePlanEditor
                 scenes={content.scenes}
-                onSave={async (scenes) => { await updateStepContent(domain, runId, step.id, { scenes }); onSaved() }}
+                onSave={async (scenes) => { await updateStepContent(domain, runId, step.id, { scenes }, owner); onSaved() }}
               />
             ) : content.kind === 'asset_manifest' || content.kind === 'asset_acquisition' ? (
               <AssetPlanEditor
                 scenes={content.scenes}
-                onSave={async (asset_scenes) => { await updateStepContent(domain, runId, step.id, { asset_scenes }); onSaved() }}
+                onSave={async (asset_scenes) => { await updateStepContent(domain, runId, step.id, { asset_scenes }, owner); onSaved() }}
               />
             ) : content.kind === 'assets_viewer' ? (
               <AssetFolderViewer
