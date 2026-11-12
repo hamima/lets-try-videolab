@@ -4,6 +4,7 @@ import GeneratePage from '@/pages/GeneratePage'
 import StatusPage from '@/pages/StatusPage'
 import TasksListPage from '@/pages/TasksListPage'
 import RunDetailPage from '@/pages/RunDetailPage'
+import RunWizardPage from '@/pages/RunWizardPage'
 import SettingsPage from '@/pages/SettingsPage'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Route path="/status/:jobId" element={<StatusPage />} />
           <Route path="/tasks" element={<TasksListPage />} />
           <Route path="/tasks/:domain/:runId" element={<RunDetailPage />} />
+          <Route path="/tasks/:domain/:runId/wizard/:stepId" element={<RunWizardPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

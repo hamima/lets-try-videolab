@@ -14,7 +14,7 @@ Reads:  workspace/edl.json
        assets/scene_X/...
        sfx/*.wav
        fonts/NotoSansDevanagari-Bold.ttf
-Writes: output/final_video.mp4
+Writes: <workspace>/output/final_video.mp4
 """
 
 
@@ -49,9 +49,10 @@ BASE_DIR = Path(__file__).parent.parent
 # (workspace/<domain>/<run_id>); fall back to the repo-root workspace/ for standalone use.
 WORKSPACE = Path(os.environ.get("WORKSPACE_DIR", BASE_DIR / "workspace"))
 ASSETS_DIR = WORKSPACE / "assets"
-# Final output is global (not per-run) — matches tasks.py's _output_exists() treatment
-# of "output/"-prefixed step outputs as BASE_DIR-relative.
-OUTPUT_DIR = BASE_DIR / "output"
+# Final output lives inside the run's own workspace — matches tasks.py's/
+# automate.py's output_exists() treatment of "output/"-prefixed step outputs
+# as workspace-relative, so each run's assembled video is independent.
+OUTPUT_DIR = WORKSPACE / "output"
 SFX_DIR = BASE_DIR / "sfx"
 FONTS_DIR = BASE_DIR / "fonts"
 

@@ -101,7 +101,6 @@ BASE_DIR       = Path(__file__).parent
 PROMPTS_DIR    = BASE_DIR / "prompts"
 SCRIPTS_DIR    = BASE_DIR / "scripts"
 WORKSPACE_ROOT = BASE_DIR / "workspace"
-OUTPUT_DIR     = BASE_DIR / "output"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -909,8 +908,6 @@ def run_script(step: dict, ws: Path, state: dict) -> None:
 
 def output_exists(step: dict, ws: Path) -> bool:
     out = step["output"]
-    if out.startswith("output/"):
-        return (BASE_DIR / out).exists()
     if out.endswith("/"):
         p = ws / out
         return p.exists() and any(p.rglob("*"))
