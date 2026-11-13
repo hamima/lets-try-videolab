@@ -34,7 +34,8 @@ All task endpoints are mounted at `/tasks`.
 | `15` | Narration Timing | script |
 | `16` | Edit Decision List | gemini |
 | `17` | Final Assembly | script |
-| `18` | Platform Metadata | gemini |
+| `18` | Subtitles | script |
+| `19` | Platform Metadata | gemini |
 
 ---
 
@@ -44,10 +45,10 @@ Create or resume a workspace for a domain. Resumes the latest workspace by defau
 
 **Full pipeline auto-run is gated behind the `ENABLE_FULL_PIPELINE` config flag (default `false`).** When the flag is off:
 
-- A plain `fresh`/resume request (`preview_only` not set) just creates/resumes the workspace and returns immediately — **no background run is dispatched**. Use `POST /tasks/runs/{domain}/{run_id}/steps/{step_id}` to run each of the 18 steps individually.
+- A plain `fresh`/resume request (`preview_only` not set) just creates/resumes the workspace and returns immediately — **no background run is dispatched**. Use `POST /tasks/runs/{domain}/{run_id}/steps/{step_id}` to run each of the 19 steps individually.
 - A fresh-start **preview** request (`fresh: true` **and** `preview_only: true`) still runs — this is the only path that auto-executes in the background regardless of the flag. It runs step 1 only, then stops and waits for approval (see "Preview flow" below).
 
-When `ENABLE_FULL_PIPELINE=true`, non-preview requests behave as before: the full 18-step pipeline is dispatched in a background thread immediately.
+When `ENABLE_FULL_PIPELINE=true`, non-preview requests behave as before: the full 19-step pipeline is dispatched in a background thread immediately.
 
 ### Request body
 
@@ -301,7 +302,7 @@ List all workspaces across all domains, with step completion summary and generat
     "active": false,
     "steps_completed": 12,
     "steps_failed": 1,
-    "steps_total": 18,
+    "steps_total": 19,
     "videos": [
       "workspace/political/2026-08-20_143022/assets/scene_1/asset_1/animated.mp4",
       "workspace/political/2026-08-20_143022/assets/scene_2/asset_1/animated.mp4"
@@ -345,7 +346,7 @@ curl "http://localhost:8080/tasks/runs?domain=political"
 
 | Variable | Used by |
 |---|---|
-| `GEMINI_API_KEY` | Steps 1–5, 8, 10, 12, 16, 18 |
+| `GEMINI_API_KEY` | Steps 1–5, 8, 10, 12, 16, 19 |
 | `ELEVENLABS_API_KEY` | Steps 11, 13 |
 | `PEXELS_API_KEY` | Step 7 (Pexels fallback) |
 | `RUNPOD_URL` | Step 9 (animation server) |
@@ -361,4 +362,4 @@ In addition to environment variables, some behavior is controlled via `settings.
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `ENABLE_FULL_PIPELINE` | bool | `false` | When `false`, `POST /tasks/runs` no longer auto-dispatches the full 18-step background run, and `POST /tasks/runs/{domain}/{run_id}/continue` returns `409`. Steps must be run individually via `POST /tasks/runs/{domain}/{run_id}/steps/{step_id}`. The fresh-start preview flow (step 1 only) is unaffected by this flag. Set to `true` to restore the old auto-run-everything behavior. |
+| `ENABLE_FULL_PIPELINE` | bool | `false` | When `false`, `POST /tasks/runs` no longer auto-dispatches the full 19-step background run, and `POST /tasks/runs/{domain}/{run_id}/continue` returns `409`. Steps must be run individually via `POST /tasks/runs/{domain}/{run_id}/steps/{step_id}`. The fresh-start preview flow (step 1 only) is unaffected by this flag. Set to `true` to restore the old auto-run-everything behavior. |

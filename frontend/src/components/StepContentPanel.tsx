@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import StepContentViewer from '@/components/viewers/StepContentViewer'
 import ResearchEditor from '@/components/viewers/ResearchEditor'
 import ScenePlanEditor from '@/components/viewers/ScenePlanEditor'
+import SubtitleEditor from '@/components/viewers/SubtitleEditor'
 import AssetPlanEditor from '@/components/viewers/AssetPlanEditor'
 import AssetFolderViewer from '@/components/viewers/AssetFolderViewer'
 import ImageSceneViewer from '@/components/viewers/ImageSceneViewer'
@@ -113,6 +114,11 @@ export default function StepContentPanel({
               <ScenePlanEditor
                 scenes={content.scenes}
                 onSave={async (scenes) => { await updateStepContent(domain, runId, step.id, { scenes }, owner); onSaved() }}
+              />
+            ) : content.kind === 'subtitles' ? (
+              <SubtitleEditor
+                captions={content.captions}
+                onSave={async (captions) => { await updateStepContent(domain, runId, step.id, { captions }, owner); onSaved() }}
               />
             ) : content.kind === 'asset_manifest' || content.kind === 'asset_acquisition' ? (
               <AssetPlanEditor

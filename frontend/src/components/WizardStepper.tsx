@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 
 // Horizontal progress stepper for the run wizard. Dots carry no step number
 // or name — hovering/focusing a dot reveals the step's real name in a
-// tooltip, keeping the strip compact across all 18 steps.
+// tooltip, keeping the strip compact across all 19 steps.
 export default function WizardStepper({
   steps,
   currentStepId,

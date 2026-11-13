@@ -1,6 +1,6 @@
 # VidLife
 
-Automated documentary video pipeline — given a domain, it researches a topic, writes a script, sources and animates assets, generates narration and music, and assembles a final video, in 18 steps.
+Automated documentary video pipeline — given a domain, it researches a topic, writes a script, sources and animates assets, generates narration and music, and assembles a subtitled final video, in 19 steps.
 
 The primary way to use it is the **web app**: sign in, start a run, watch it progress step by step, and review/edit/rerun any step from the browser. A CLI (`automate.py`) also exists for scripted/headless use — see [CLI](#cli-automatepy) below.
 
@@ -62,14 +62,14 @@ The **Pipeline** page's **New Run** button opens this exact same flow in a modal
 
 **Pipeline** (`/tasks`) lists every run you own (or, for admins, every user's runs) as a card grid — domain, research topic, status (Active / Done / Failed / Partial), progress bar, video count. Active runs auto-refresh every 5s. Click a card to open its detail page (`/tasks/:domain/:runId`), which shows the topic at the top and has two panels:
 
-- **Left — step timeline**: all 18 steps with status (done ✓ / failed ✗ / running spinner / pending). Steps beyond the reachable frontier are disabled until earlier ones finish.
+- **Left — step timeline**: all 19 steps with status (done ✓ / failed ✗ / running spinner / pending). Steps beyond the reachable frontier are disabled until earlier ones finish.
 - **Right — content panel**: the selected step's output, rendered with a viewer appropriate to its type (research sections, scene plan, asset manifest, image/video galleries, audio players, etc). Several viewers are editable and let you save corrections back before continuing.
 
 Each step has a **Rerun** button to force a redo. There's also a **Wizard View** — a linear, one-step-at-a-time walkthrough of the same run, see [`docs/wizard-look.md`](docs/wizard-look.md).
 
 ### 7. Get the final video
 
-Step 17 (Final Assembly) writes `output/final_video.mp4` inside that run's workspace (gitignored). Preview and download it from the step's entry in the content panel.
+Step 17 (Final Assembly) writes `output/final_video.mp4` inside that run's workspace (gitignored). Step 18 (Subtitles) then generates `subtitle.md` — reviewable/editable per-scene captions with timing — from the narration's timing (ElevenLabs character-level alignment when available, falling back to a coarser pause-based heuristic otherwise) and burns those captions into `final_video.mp4` in place. Preview and download the (now subtitled) video from step 17's entry in the content panel; review or correct the captions themselves from step 18's entry.
 
 ### Troubleshooting
 
@@ -78,9 +78,9 @@ Step 17 (Final Assembly) writes `output/final_video.mp4` inside that run's works
 - **Hard refresh on a `/tasks/...` URL shows `{"detail":"Not Found"}`** — the dev proxy's `/tasks` route allowlist in `frontend/vite.config.ts` only forwards real backend sub-paths (`runs`, `auth`, `settings`, `files`, `estimate-cost`); everything else falls through to the SPA. Restart `npm run dev` if you've just pulled this fix.
 - **Nothing loads / network errors on the Pipeline page** — confirm `backend/tasks.py` is running on port `8081`.
 
-## The Pipeline (18 Steps)
+## The Pipeline (19 Steps)
 
-Each run executes: Research → Story Script → Scene Breakdown → Asset Manifest → Asset Acquisition → Fetch Assets → AI Asset Generation → Animation Prompt → Video Animation → Narration Script → Narration Audio → Music Prompt → Music Audio → Asset Inventory → Narration Timing → Edit Decision List → Final Assembly → Platform Metadata.
+Each run executes: Research → Story Script → Scene Breakdown → Asset Manifest → Asset Acquisition → Fetch Assets → AI Asset Generation → Animation Prompt → Video Animation → Narration Script → Narration Audio → Music Prompt → Music Audio → Asset Inventory → Narration Timing → Edit Decision List → Final Assembly → Subtitles → Platform Metadata.
 
 See [`docs/pipeline-overview.md`](docs/pipeline-overview.md) for the full flow diagram and key decisions, and the per-area docs below for implementation detail.
 
@@ -137,12 +137,12 @@ cd frontend && npx tsc --noEmit -p . && npm run build
 | [Authentication](docs/authentication.md) | Google Sign-In, per-user workspaces, admin gating — design decisions |
 | [Tasks API](docs/tasks-api.md) | Full REST reference for `backend/tasks.py`'s `/tasks/*` endpoints |
 | [Wizard View](docs/wizard-look.md) | The linear, one-step-at-a-time run view |
-| [Pipeline Overview](docs/pipeline-overview.md) | Full 18-step flow diagram, key decisions, execution order |
+| [Pipeline Overview](docs/pipeline-overview.md) | `automate.py`'s 18-step CLI flow diagram, key decisions, execution order (the web app's pipeline adds a 19th step, Subtitles — see [Tasks API](docs/tasks-api.md)) |
 | [Scaffolding](docs/scaffolding.md) | CLI args, workspace layout, state file, domain/voice config |
-| [LLM Steps](docs/llm-steps.md) | Gemini runner, text-generation steps (1–5, 8, 10, 12, 16, 18) |
+| [LLM Steps](docs/llm-steps.md) | Gemini runner, text-generation steps (1–5, 8, 10, 12, 16, 19) |
 | [Asset Generation](docs/asset-generation.md) | Steps 6–9: fetch, Imagen 4, animation prompts, RunPod |
-| [Audio Generation](docs/audio-generation.md) | Step 11 ElevenLabs TTS, Step 13 music generation |
-| [Assembly](docs/assembly.md) | Step 17 — ffmpeg assembly via `assemble.py`; Step 18 — platform metadata |
+| [Audio Generation](docs/audio-generation.md) | Step 11 ElevenLabs TTS (+ character-level alignment), Step 13 music generation |
+| [Assembly](docs/assembly.md) | Step 17 — ffmpeg assembly via `assemble.py`; Step 18 — subtitle generation and burn-in; Step 19 — platform metadata |
 | [OpenRouter](docs/open-router.md) | Using OpenRouter as a switchable alternative AI provider |
 | [RunPod Setup](docs/runpod-setup.md) | Setting up the self-hosted video-animation server for step 9 |
 
@@ -154,6 +154,7 @@ backend/                 # FastAPI app — the web app's pipeline API
   auth.py                  # Google Sign-In verification, sessions
   settings.py               # settings.json read/write, admin-gated
   workspace_migration.py   # moves pre-multi-user workspaces under a user folder (runs on every boot)
+  subtitles.py             # step 18's chunking/parsing logic (alignment + pause-heuristic paths, subtitle.md format)
   tests/                   # pytest suite
 frontend/                # React + Vite + TypeScript web app
   src/pages/                # GeneratePage, TasksListPage, RunDetailPage, RunWizardPage, SettingsPage, SignInPage
@@ -162,12 +163,16 @@ frontend/                # React + Vite + TypeScript web app
 server/                  # standalone GPU-bound Wan 2.2 I2V inference server (separate from the pipeline; see server/README.md)
 automate.py              # CLI pipeline runner (legacy workspace layout)
 pipeline.py              # original manual pipeline (reference)
-scripts/                 # one-off maintenance scripts (e.g. workspace migration CLI)
+scripts/                 # one-off maintenance scripts (e.g. workspace migration CLI) and shared pipeline scripts
+  assemble.py               # step 17 — ffmpeg/moviepy assembly
+  generate_subtitles.py    # step 18 — subtitle.md + burned-in captions
+  text_overlay.py          # shared Pillow/MoviePy text-overlay rendering (steps 17 and 18)
+fonts/                   # NotoSansDevanagari-Bold.ttf (SIL OFL) used for all burned-in text/captions
 prompts/
   {domain}/
     01_research.md
     02_story.md
-    02b_platform_metadata.md   # step 18 — YouTube title, description, hashtags, tags (runs last)
+    02b_platform_metadata.md   # step 19 — YouTube title, description, hashtags, tags (runs last)
     03_scene_breakdown.md
     04_asset_planning.md
     05_asset_acquisition.md

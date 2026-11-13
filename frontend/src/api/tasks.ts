@@ -76,6 +76,13 @@ export interface Scene {
   beats: SceneBeat[]
 }
 
+export interface SubtitleCaption {
+  scene_id: number
+  start_sec: number
+  end_sec: number
+  text: string
+}
+
 export interface AssetFile {
   type: 'image' | 'text'
   label: string
@@ -105,6 +112,7 @@ export type StepContent =
   | { kind: 'research'; sections: ResearchSection[] }
   | { kind: 'story'; sections: ResearchSection[] }
   | { kind: 'scene_plan'; scenes: Scene[] }
+  | { kind: 'subtitles'; captions: SubtitleCaption[] }
   | { kind: 'assets_viewer'; scenes: AssetFolderScene[] }
   | { kind: 'audio'; url: string | null }
   | { kind: 'video'; url: string | null }
@@ -203,7 +211,7 @@ export async function updateStepContent(
   domain: string,
   runId: string,
   stepId: string,
-  data: { content?: string; sections?: ResearchSection[]; scenes?: Scene[]; asset_scenes?: AssetScene[] },
+  data: { content?: string; sections?: ResearchSection[]; scenes?: Scene[]; asset_scenes?: AssetScene[]; captions?: SubtitleCaption[] },
   owner?: string,
 ): Promise<void> {
   await http.put(`/runs/${domain}/${runId}/steps/${stepId}/content`, data, { params: owner ? { owner } : {} })

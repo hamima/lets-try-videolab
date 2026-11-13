@@ -13,7 +13,7 @@ Both audio steps use the ElevenLabs v3 API. They run after the asset track (step
    - This section contains `<break time="2.0s"/>` between scenes and `<break time="1.5s"/>` mid-sentence, as produced by `10_narration.md`
    - No further tag injection needed — v3 interprets `<break time="Xs"/>` natively
 3. Load `voice_id` from `pipeline_state.json`
-4. Call ElevenLabs TTS API:
+4. Call the ElevenLabs TTS API:
 
 ```python
 import requests
@@ -29,6 +29,8 @@ response = requests.post(url, json=payload, headers=headers)
 ```
 
 5. Save response bytes to `{workspace}/narration.mp3`
+
+**Web app only** (`backend/tasks.py`; `automate.py`'s CLI copy of this function is unchanged): calls `.../with-timestamps` instead of the plain endpoint. That variant returns JSON — `{"audio_base64": ..., "alignment": {"characters": [...], "character_start_times_seconds": [...], "character_end_times_seconds": [...]}}` — rather than raw audio bytes. The backend base64-decodes `audio_base64` into `narration.mp3` as before, and additionally saves `alignment` to `narration_alignment.json`. This is true character-level forced alignment (straight from the engine that generated the voice) and is what powers Step 18's primary subtitle-timing path — see [Assembly](assembly.md). When OpenRouter is used for TTS instead (`USE_OPENROUTER`), or in Mock AI mode without a synthetic alignment, no `narration_alignment.json` is written and Step 18 falls back to a coarser pause-based heuristic. Mock AI mode does write a synthetic `narration_alignment.json` (`backend/mocks/generators.py`'s `generate_narration_alignment`) so the primary path is still exercised in local/CI dev without real API keys.
 
 ---
 
