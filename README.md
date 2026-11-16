@@ -35,6 +35,8 @@ npm run dev
 
 Open the printed URL (typically `http://localhost:5173`). The dev server proxies `/tasks/*` to the backend on `8081` — no CORS setup needed. Check `frontend/.env.local`: `VITE_MOCK_TASKS` should be `false` (the default) to talk to the real backend instead of mocked data.
 
+By default the frontend talks to the backend via the relative path `/tasks` (resolved by the dev proxy locally, or a reverse proxy in production) — no backend address needs configuring. To point it at a different host instead (e.g. a deployed backend), set `VITE_API_URL` in `frontend/.env.local` (e.g. `VITE_API_URL=https://api.example.com`); leaving it unset keeps today's relative-path behavior unchanged. Note Vite inlines this at build time, not runtime, so a build is tied to whatever `VITE_API_URL` was set when `npm run build` ran.
+
 ### 3. Sign in
 
 The app requires Google Sign-In, restricted to `@gmail.com` accounts (verified server-side — see [`docs/authentication.md`](docs/authentication.md)). Every route redirects to `/signin` until authenticated. Your workspace is scoped to your email's local-part, e.g. `jane.doe@gmail.com` → `workspace/jane.doe/`.

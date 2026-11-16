@@ -1,6 +1,10 @@
 import axios from 'axios'
 
-const http = axios.create({ baseURL: '/tasks', withCredentials: true })
+// VITE_API_URL optionally points the pipeline API at a different host (e.g. a
+// deployed backend instead of the dev proxy). Unset by default — baseURL then
+// resolves to the plain relative path '/tasks', exactly as before, relying on
+// same-origin serving (the Vite dev proxy locally, a reverse proxy in prod).
+const http = axios.create({ baseURL: `${import.meta.env.VITE_API_URL ?? ''}/tasks`, withCredentials: true })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
