@@ -2215,7 +2215,38 @@ async def _lifespan(_app: FastAPI):
     yield
 
 
+def _parse_allowed_origins(raw: str) -> list:
+    """Parse ALLOWED_ORIGINS ('comma,separated,origins') into a clean list,
+    dropping blanks from stray commas/whitespace. Empty input -> []."""
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 app = FastAPI(title="VidLife Tasks API", lifespan=_lifespan)
+
+# CORS: only needed when the frontend is served from a different origin than
+# the backend (e.g. a static host + a separately-deployed API, as in
+# render.yaml) — local dev goes through Vite's same-origin proxy and never
+# hits this. ALLOWED_ORIGINS is a comma-separated list of exact origins;
+# left unset, no CORS middleware is added and cross-origin requests are
+# simply not allowed (today's behavior, unchanged).
+_allowed_origins = _parse_allowed_origins(os.environ.get("ALLOWED_ORIGINS", ""))
+if _allowed_origins:
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=True,  # the session cookie requires this — "*" origins can't be combined with it
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.get("/health")
+def health():
+    """Liveness/readiness check for deploy platforms (e.g. Render's healthCheckPath)."""
+    return {"status": "ok"}
+
+
 app.include_router(router)
 app.include_router(_settings.router, prefix="/tasks")
 app.include_router(auth.router, prefix="/tasks")

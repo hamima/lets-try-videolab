@@ -353,6 +353,16 @@ curl "http://localhost:8080/tasks/runs?domain=political"
 
 Set these via `source .keys` before starting the backend.
 
+## Deployment-only environment variables
+
+Not part of `.keys` — these configure the deployed server process itself, not a pipeline step:
+
+| Variable | Used by | Default |
+|---|---|---|
+| `ALLOWED_ORIGINS` | Comma-separated list of exact origins allowed to call the API cross-origin (e.g. a frontend on a different host — see `render.yaml`). Enables `CORSMiddleware` with credentials support (required for the session cookie) only when set. | unset — no CORS middleware added, cross-origin requests aren't allowed |
+
+`GET /health` (not under the `/tasks` prefix) returns `{"status": "ok"}` for deploy-platform liveness/readiness checks (e.g. Render's `healthCheckPath`).
+
 ---
 
 ## Settings flags
