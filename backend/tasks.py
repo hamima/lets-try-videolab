@@ -64,10 +64,16 @@ ELEVENLABS_MODEL      = "eleven_v3"
 # Paths — project root is two levels up from this file
 # ─────────────────────────────────────────────────────────────
 
-BASE_DIR       = Path(__file__).parent.parent
-PROMPTS_DIR    = BASE_DIR / "prompts"
-SCRIPTS_DIR    = BASE_DIR / "scripts"
-WORKSPACE_ROOT = BASE_DIR / "workspace"
+BASE_DIR    = Path(__file__).parent.parent
+PROMPTS_DIR = BASE_DIR / "prompts"
+SCRIPTS_DIR = BASE_DIR / "scripts"
+
+# DATA_DIR defaults to BASE_DIR (today's behavior: workspace/ lives alongside
+# the code). Set it to a mounted persistent volume's path (e.g. /data in
+# docker-compose.yml — see docs/deployment-oracle-cloud.md) to survive
+# container/redeploy recreation — the code checkout itself is ephemeral.
+DATA_DIR       = Path(os.environ.get("DATA_DIR", BASE_DIR))
+WORKSPACE_ROOT = DATA_DIR / "workspace"
 
 
 # ─────────────────────────────────────────────────────────────

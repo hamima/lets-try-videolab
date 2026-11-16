@@ -147,6 +147,7 @@ cd frontend && npx tsc --noEmit -p . && npm run build
 | [Assembly](docs/assembly.md) | Step 17 — ffmpeg assembly via `assemble.py`; Step 18 — subtitle generation and burn-in; Step 19 — platform metadata |
 | [OpenRouter](docs/open-router.md) | Using OpenRouter as a switchable alternative AI provider |
 | [RunPod Setup](docs/runpod-setup.md) | Setting up the self-hosted video-animation server for step 9 |
+| [Deployment — Oracle Cloud](docs/deployment-oracle-cloud.md) | Deploying the backend via Docker on an Oracle Cloud free VM (genuine free persistent disk — no PaaS offers that anymore) |
 
 ## Project Structure
 
