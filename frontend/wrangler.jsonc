@@ -1,0 +1,16 @@
+{
+  // Cloudflare merged the classic Pages Git-integration dashboard into the
+  // unified "Workers Builds" flow (as of ~Oct 2026) — that UI no longer has
+  // a "Build output directory" field at all. This file is now the source of
+  // truth for it instead, via pages_build_output_dir. Leave the dashboard's
+  // "Deploy command" field empty: once pages_build_output_dir is set,
+  // Cloudflare treats this as a Pages project and deploys the built static
+  // assets automatically right after the build — no separate deploy step.
+  //
+  // "name" must match whatever this project is named in the Cloudflare
+  // dashboard exactly — update it if you named it something other than
+  // "vidlife" when creating the project.
+  "name": "vidlife",
+  "pages_build_output_dir": "dist",
+  "compatibility_date": "2026-11-18"
+}

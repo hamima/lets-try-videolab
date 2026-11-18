@@ -8,6 +8,7 @@ This repo is a **monorepo** (`frontend/`, `backend/`, `scripts/`, etc. all sibli
 
 - **Git integration (GitHub), not CLI-only deploys.** Connects directly to this repo's GitHub remote (`git@github.com:hamima/lets-try-videolab.git`) — every push to `main` triggers an automatic build/deploy, matching the git-push-driven workflow already used for the backend (Oracle VM: `git pull && docker compose up -d --build`). Manual `wrangler pages deploy` stays available as a documented fallback (last task) for one-off deploys without pushing, but isn't the primary path.
 - **Root directory: `frontend`.** Build command `npm run build` (already `tsc -b && vite build` per `package.json`), output directory `dist` — both relative to the root directory, not the repo root.
+- **Build output directory is configured via `frontend/wrangler.jsonc`, not a dashboard field.** Cloudflare merged the classic Pages Git-integration dashboard into a unified "Workers Builds" flow (confirmed as of ~Oct 2026) — that dashboard has a "Deploy command" field but no "Build output directory" field at all. `wrangler.jsonc`'s `pages_build_output_dir` key is now the source of truth for this instead; once it's set, Cloudflare deploys the built static assets automatically right after the build, so **the dashboard's Deploy command field should be left empty** (it's for Worker-style projects that need an explicit `wrangler deploy` step, which a plain static SPA doesn't).
 - **Node version is pinned explicitly**, not left to Cloudflare's build-image default (which may be older than this project's Vite 8 / TypeScript toolchain expects) — via a committed `.node-version` file, which Cloudflare's build system auto-detects.
 - **`VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID` are set as Cloudflare dashboard environment variables, not committed into `frontend/.env.production`.** Both are deployment-specific (the backend's actual public URL, an OAuth Client ID tied to this exact origin) — `.env.production`'s existing placeholders for these stay commented out/empty, consistent with how that file already documents them as "fill in per deployment." `VITE_MOCK`/`VITE_MOCK_TASKS=false` already live in the committed `.env.production` and need no dashboard override.
 - **SPA routing needs no new work** — `frontend/public/_redirects` (`/* /index.html 200`) already exists from the earlier Render/Netlify-style fix, and Cloudflare Pages reads the exact same `_redirects` syntax (confirmed via Cloudflare's own Netlify-migration docs). Cloudflare also auto-detects SPAs and falls back to `index.html` even without this file when no top-level `404.html` exists, so this is a belt-and-suspenders verification task, not new work.
@@ -21,18 +22,30 @@ In the Cloudflare dashboard: **Workers & Pages → Create → Pages → Connect 
 
 ### Set the monorepo root directory and build settings
 
-Under **Advanced settings** (or the build-config step during initial setup):
+Under **Advanced settings** (or the build-config step during initial setup) in the Workers Builds dashboard:
 
 - **Root directory**: `frontend`
 - **Build command**: `npm run build`
-- **Build output directory**: `dist`
-- **Build system version**: ensure Build System V2 (or later) is selected — required for monorepo root-directory support.
-- Framework preset: select **Vite** if offered — it pre-fills the build command/output above, but the root directory still has to be set explicitly regardless of preset (the preset doesn't know this is a monorepo).
+- **Deploy command**: leave **empty** — see the "Key decisions" note above. Once `frontend/wrangler.jsonc` (next step) is in place with `pages_build_output_dir` set, Cloudflare recognizes this as a Pages-style project and deploys automatically after the build runs; setting a deploy command here is only for Worker-style projects that run their own `wrangler deploy`.
+- Framework preset: select **Vite** if offered — it pre-fills the build command, but the root directory still has to be set explicitly regardless of preset (the preset doesn't know this is a monorepo).
+
+### Add `frontend/wrangler.jsonc`
+
+```jsonc
+{
+  "name": "vidlife",                 // must match the Cloudflare project's name exactly
+  "pages_build_output_dir": "dist",  // relative to frontend/, matches vite build's output
+  "compatibility_date": "2026-11-18"
+}
+```
+
+This is the file that replaces the dashboard's old "Build output directory" field. `name` must exactly match whatever the project was named when it was created in the Cloudflare dashboard.
 
 #### Acceptance criteria
 
 - The first build actually runs `npm run build` inside `frontend/` (visible in the build log's working directory), not the repo root.
-- The build succeeds and the deployed site actually renders the app (not a 404 or the raw repo README) — confirms the root directory took effect, not just that a build happened.
+- The build succeeds, and Cloudflare deploys automatically right after — no separate "deploy" step appears in the log, confirming `pages_build_output_dir` was picked up and the project is being treated as Pages-style, not Worker-style.
+- The deployed site actually renders the app (not a 404 or the raw repo README) — confirms the root directory took effect too, not just that a build happened.
 
 ### Pin the Node version
 
