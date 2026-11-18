@@ -13,7 +13,7 @@ This repo is a **monorepo** (`frontend/`, `backend/`, `scripts/`, etc. all sibli
 - **Static assets are configured via `frontend/wrangler.jsonc`'s `assets` block, not a dashboard field** — the dashboard's build-config screen for this flow has **Deploy command** and **Preview command** fields instead, both required: `npx wrangler deploy` and `npx wrangler versions upload` respectively (Cloudflare's own stated defaults for this field). `wrangler.jsonc` has no `main` (no actual Worker script — pure static SPA) and sets `assets.directory: "./dist"` plus `assets.not_found_handling: "single-page-application"` for client-side routing. (An earlier draft of this file used `pages_build_output_dir`, which is a *different*, Pages-specific config key that does nothing in this Worker-based flow — corrected once this was actually tested against the real dashboard form.)
 - **Node version is pinned explicitly**, not left to Cloudflare's build-image default (which may be older than this project's Vite 8 / TypeScript toolchain expects) — via a committed `.node-version` file, which Cloudflare's build system auto-detects.
 - **`VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID` are set as Cloudflare dashboard environment variables, not committed into `frontend/.env.production`.** Both are deployment-specific (the backend's actual public URL, an OAuth Client ID tied to this exact origin) — `.env.production`'s existing placeholders for these stay commented out/empty, consistent with how that file already documents them as "fill in per deployment." `VITE_MOCK`/`VITE_MOCK_TASKS=false` already live in the committed `.env.production` and need no dashboard override.
-- **SPA routing needs no new work, and two mechanisms now cover it.** `frontend/public/_redirects` (`/* /index.html 200`) already exists from the earlier Render/Netlify-style fix, and Cloudflare's Workers static-assets feature natively supports the exact same `_redirects` syntax (confirmed via Cloudflare's own docs) — it keeps working unchanged. `wrangler.jsonc`'s `not_found_handling: "single-page-application"` is a second, Workers-native mechanism that does the same job at the asset-serving layer; both are active and complementary, not a replacement for one another.
+- **SPA routing is `wrangler.jsonc`'s `not_found_handling: "single-page-application"` only — `frontend/public/_redirects` had to be deleted.** It previously held the Render/Netlify-style catch-all rule (`/* /index.html 200`), and Workers static assets does support `_redirects`' syntax in general — but that specific catch-all rule fails deploy entirely with `[code: 100324] Infinite loop detected in this rule`, because Cloudflare's redirect validator sees `/*` also matching the rule's own `/index.html` destination. This is a well-documented, repeatedly-hit issue (confirmed via multiple real-world fixes on GitHub) with one standard resolution: delete the file, rely solely on `not_found_handling` instead — which is a distinct, non-redirect-based fallback mechanism at the asset-serving layer, not subject to the same loop check.
 - **This plan ends with a "close the loop" task**, not left implicit: once Cloudflare assigns the real deployed URL, two things elsewhere need updating to actually work together — the backend's `ALLOWED_ORIGINS` (Oracle VM's `.env`, needs a container recreate) and the Google OAuth Client ID's authorized JavaScript origins (Google Cloud Console) — both already documented as prerequisites in `docs/authentication.md`/`docs/deployment-oracle-cloud.md`, but easy to forget once the frontend itself is "deployed."
 
 ## Create and configure the Cloudflare project
@@ -36,7 +36,7 @@ Under **Settings → Build** (or the build-config step during initial setup):
 
 ```jsonc
 {
-  "name": "vidlife",                 // must match the Cloudflare project's name exactly
+  "name": "try-videolab",             // must match the Cloudflare project's name exactly
   "compatibility_date": "2026-11-18",
   "assets": {
     "directory": "./dist",                          // relative to frontend/, matches vite build's output
@@ -77,9 +77,9 @@ Trigger a rebuild after setting these (Cloudflare env var changes don't retroact
 
 ## Verify SPA routing and the first real deploy
 
-### Confirm `_redirects` is picked up and deep-link routes work
+### Confirm `not_found_handling` actually covers deep-link routes
 
-After the first successful deploy, directly load (not navigate from the homepage) a deep client-side route — e.g. `https://<project>.workers.dev/tasks` or `/tasks/<domain>/<run-id>` — both as a hard URL load and as a page refresh once already on it. This is exactly the class of bug already fixed once for the Vite dev proxy (`/tasks/*` 404ing on hard refresh) and for Netlify-style static hosts (`frontend/public/_redirects`) — confirm the fix actually carries over to Cloudflare specifically rather than assuming it does because the syntax matches.
+After the first successful deploy, directly load (not navigate from the homepage) a deep client-side route — e.g. `https://<project>.workers.dev/tasks` or `/tasks/<domain>/<run-id>` — both as a hard URL load and as a page refresh once already on it. This is exactly the class of bug already fixed once for the Vite dev proxy (`/tasks/*` 404ing on hard refresh) and for Netlify-style static hosts (the now-deleted `frontend/public/_redirects`) — confirm `wrangler.jsonc`'s `not_found_handling: "single-page-application"` actually covers it on Cloudflare, since it's a different mechanism than both of those.
 
 #### Acceptance criteria
 
@@ -92,7 +92,7 @@ Two things elsewhere in the stack need the deployed project's actual URL before 
 
 ### Update the backend's `ALLOWED_ORIGINS`
 
-On the Oracle VM (`docs/deployment-oracle-cloud.md`): edit `.env`, set/extend `ALLOWED_ORIGINS` to include the deployed origin (e.g. `https://vidlife.<account>.workers.dev`, plus any custom domain added later), then `docker compose up -d` to recreate the container with the new env var (editing `.env` alone doesn't affect an already-running container).
+On the Oracle VM (`docs/deployment-oracle-cloud.md`): edit `.env`, set/extend `ALLOWED_ORIGINS` to include the deployed origin (e.g. `https://try-videolab.<account>.workers.dev`, plus any custom domain added later), then `docker compose up -d` to recreate the container with the new env var (editing `.env` alone doesn't affect an already-running container).
 
 ### Authorize the origin for Google Sign-In
 

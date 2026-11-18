@@ -13,18 +13,19 @@
   //   Preview command: npx wrangler versions upload
   //
   // "name" must match whatever this project is named in the Cloudflare
-  // dashboard exactly — update it if you named it something other than
-  // "vidlife" when creating it.
-  "name": "vidlife",
+  // dashboard exactly (confirmed via the deploy log's API path:
+  // /workers/scripts/try-videolab/...).
+  "name": "try-videolab",
   "compatibility_date": "2026-11-18",
   "assets": {
     "directory": "./dist",
     // Requests that don't match a built static asset get index.html with a
-    // 200 (not a 404) — lets the client-side router handle them. This is
-    // the Workers-native equivalent of frontend/public/_redirects' catch-all
-    // rule; both are honored (they're separate, complementary features —
-    // _redirects is unaffected and still useful for any future explicit
-    // redirect rules).
+    // 200 (not a 404) — lets the client-side router handle them. Do NOT
+    // also add a catch-all `/* /index.html 200` rule to a _redirects file
+    // alongside this: Cloudflare's redirect validator rejects it as an
+    // "infinite loop" (error 100324) since /* also matches /index.html
+    // itself — this not_found_handling setting is the correct, non-redirect
+    // mechanism for SPA fallback on Workers static assets.
     "not_found_handling": "single-page-application"
   }
 }

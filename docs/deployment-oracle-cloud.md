@@ -46,7 +46,7 @@ cp .env.example .env
 Edit `.env` and fill in at minimum:
 
 - `GOOGLE_CLIENT_ID` — required, sign-in 500s without it (see `docs/authentication.md`). Must be authorized in Google Cloud Console for whatever origin the frontend ends up calling this backend from.
-- `ALLOWED_ORIGINS` — the frontend's deployed origin(s), comma-separated (e.g. `https://vidlife.pages.dev`).
+- `ALLOWED_ORIGINS` — the frontend's deployed origin(s), comma-separated (e.g. `https://try-videolab.<account>.workers.dev` — see `docs/cloudflare-pages-deploy.md`).
 
 The pipeline API keys (`GEMINI_API_KEY`, etc.) can go in `.env` too, or be left unset and configured later through the Settings UI — either way, they end up on the persistent `/data` volume, not the throwaway image layer, so they survive container recreation.
 
