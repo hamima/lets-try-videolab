@@ -148,7 +148,7 @@ cd frontend && npx tsc --noEmit -p . && npm run build
 | [OpenRouter](docs/open-router.md) | Using OpenRouter as a switchable alternative AI provider |
 | [RunPod Setup](docs/runpod-setup.md) | Setting up the self-hosted video-animation server for step 9 |
 | [Deployment — Oracle Cloud](docs/deployment-oracle-cloud.md) | Deploying the backend via Docker on an Oracle Cloud free VM (genuine free persistent disk — no PaaS offers that anymore) |
-| [Deployment — Cloudflare Pages](docs/cloudflare-pages-deploy.md) | Deploying the frontend to Cloudflare Pages' free plan |
+| [Deployment — Cloudflare](docs/cloudflare-pages-deploy.md) | Deploying the frontend to Cloudflare's free plan (Workers static assets, formerly "Pages") |
 
 ## Project Structure
 

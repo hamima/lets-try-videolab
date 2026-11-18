@@ -1,16 +1,30 @@
 {
-  // Cloudflare merged the classic Pages Git-integration dashboard into the
-  // unified "Workers Builds" flow (as of ~Oct 2026) — that UI no longer has
-  // a "Build output directory" field at all. This file is now the source of
-  // truth for it instead, via pages_build_output_dir. Leave the dashboard's
-  // "Deploy command" field empty: once pages_build_output_dir is set,
-  // Cloudflare treats this as a Pages project and deploys the built static
-  // assets automatically right after the build — no separate deploy step.
+  // This project deploys as a Cloudflare Worker with static assets (the
+  // "Workers Builds" dashboard flow), NOT classic Cloudflare Pages —
+  // `pages_build_output_dir` (an earlier, wrong attempt at this file) is a
+  // Pages-only config key and does nothing here. There's no actual Worker
+  // script (no `main`) — this is a pure static SPA, served entirely via the
+  // `assets` block below.
+  //
+  // Dashboard build settings (Settings → Build):
+  //   Root directory:  frontend
+  //   Build command:   npm run build
+  //   Deploy command:  npx wrangler deploy
+  //   Preview command: npx wrangler versions upload
   //
   // "name" must match whatever this project is named in the Cloudflare
   // dashboard exactly — update it if you named it something other than
-  // "vidlife" when creating the project.
+  // "vidlife" when creating it.
   "name": "vidlife",
-  "pages_build_output_dir": "dist",
-  "compatibility_date": "2026-11-18"
+  "compatibility_date": "2026-11-18",
+  "assets": {
+    "directory": "./dist",
+    // Requests that don't match a built static asset get index.html with a
+    // 200 (not a 404) — lets the client-side router handle them. This is
+    // the Workers-native equivalent of frontend/public/_redirects' catch-all
+    // rule; both are honored (they're separate, complementary features —
+    // _redirects is unaffected and still useful for any future explicit
+    // redirect rules).
+    "not_found_handling": "single-page-application"
+  }
 }
