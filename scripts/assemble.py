@@ -50,6 +50,13 @@ DUCK_FADE_SEC = 0.3
 MUSIC_FADE_OUT_SEC = 1.0
 SFX_BASE_VOLUME = 0.4
 
+TRANSITION_FRAMES = 8        # centered dissolve at each scene boundary (0 disables)
+LOOK_ENABLED = os.environ.get("ASSEMBLE_LOOK", "1") != "0"
+LOOK_LUT = os.environ.get("ASSEMBLE_LUT") or (
+    str(BASE_DIR / "luts" / "look.cube") if (BASE_DIR / "luts" / "look.cube").exists() else None)
+TARGET_LUFS = -14.0
+TARGET_TP = -1.5
+
 KNOWN_EFFECTS = {"speed", "zoom_punch"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
@@ -343,6 +350,36 @@ def write_wav(path: Path, x: np.ndarray):
         w.writeframes(pcm.tobytes())
 
 
+def master_audio(wav_in: Path, wav_out: Path, total_samples: int) -> Path:
+    """Highpass + gentle compression + two-pass loudnorm (-14 LUFS), then
+    re-fit to the exact sample grid so timing is untouched."""
+    pre = "highpass=f=70,acompressor=threshold=-20dB:ratio=3:attack=15:release=250:makeup=2"
+    r = _run(["ffmpeg", "-v", "info", "-i", str(wav_in), "-af",
+              f"{pre},loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA=11:print_format=json",
+              "-f", "null", "-"], text=True)
+    m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", r.stderr, re.S)
+    chain = pre
+    if m:
+        d = json.loads(m.group(0))
+        try:
+            vals = {k: float(d[k]) for k in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")}
+            if not all(np.isfinite(v) for v in vals.values()):
+                raise ValueError("silent audio")
+            chain += (f",loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA=11:linear=true"
+                      f":measured_I={vals['input_i']}:measured_TP={vals['input_tp']}"
+                      f":measured_LRA={vals['input_lra']}:measured_thresh={vals['input_thresh']}"
+                      f":offset={vals['target_offset']}")
+        except (KeyError, ValueError):  # silent audio measures as -inf
+            pass
+    tmp_out = wav_out.with_suffix(".m.wav")
+    r = _run(["ffmpeg", "-y", "-v", "error", "-i", str(wav_in), "-af", f"{chain},aresample={SR}",
+              "-ar", str(SR), "-ac", "2", str(tmp_out)])
+    if r.returncode != 0:
+        raise RuntimeError("audio mastering failed:\n" + r.stderr.decode()[-1000:])
+    write_wav(wav_out, np.clip(_fit(decode_audio(tmp_out), total_samples), -1.0, 1.0))
+    return wav_out
+
+
 # ----------------------------------------------------------------------------
 # Text overlay rendering (PNG, shared with step 18)
 # ----------------------------------------------------------------------------
@@ -364,8 +401,29 @@ def fill_filter():
             f"crop={W}:{H},setsar=1")
 
 
-def clip_filter(c, in_label, out_label):
-    """Filter chain for one sub-clip producing exactly c['n'] frames."""
+def look_filter(grain=True):
+    """One consistent grade for every clip: soft S-curve, slight
+    saturation/contrast lift, vignette, optional fixed-seed grain (ASSEMBLE_GRAIN=1; off by default, bloats the encode)."""
+    if not LOOK_ENABLED:
+        return "null"
+    f = []
+    if LOOK_LUT:
+        f.append(f"lut3d=file='{LOOK_LUT}'")
+    f += ["format=gbrp",
+          "curves=all='0/0 0.25/0.23 0.75/0.78 1/1'",
+          "eq=saturation=1.06:contrast=1.02",
+          "vignette=angle=PI/6"]
+    if grain and os.environ.get("ASSEMBLE_GRAIN", "0") == "1":
+        f.append("noise=alls=4:allf=t:all_seed=1234")
+    f.append("format=yuv420p")
+    return ",".join(f)
+
+
+def clip_filter(c, in_label, out_label, n=None, window=None, pre_hold=0):
+    """Filter chain for one sub-clip producing exactly n (default c['n']) frames.
+    window=(a, b) keeps only frames [a, b) of the n-frame clip;
+    pre_hold repeats the first frame that many times up front."""
+    n = c["n"] if n is None else n
     f = []
     if c["kind"] == "video" and c["trim_end"] is not None:
         f.append(f"trim=duration={max(0.0, c['trim_end'] - c['trim_start'])}")
@@ -378,59 +436,109 @@ def clip_filter(c, in_label, out_label):
         z = f"(1+({sc}-1)*max(0,1-abs(t-{at})/({dur}/2)))"
         f.append(f"scale=w='trunc({W}*{z}/2)*2':h='trunc({H}*{z}/2)*2':eval=frame,crop={W}:{H}")
     f.append("format=yuv420p")
-    f.append(f"tpad=stop_mode=clone:stop_duration={c['n'] / FPS + 2}")  # hold last frame
-    f.append(f"trim=end_frame={c['n']}")
+    f.append(f"tpad=stop_mode=clone:stop_duration={n / FPS + 2}")  # hold last frame
+    if window:
+        f.append(f"trim=start_frame={window[0]}:end_frame={window[1]}")
+    else:
+        f.append(f"trim=end_frame={n}")
     f.append("setpts=PTS-STARTPTS")
+    if pre_hold:
+        f.append(f"tpad=start={pre_hold}:start_mode=clone")
     return f"[{in_label}]" + ",".join(f) + f"[{out_label}]"
+
+
+def plan_transitions(plan):
+    """Centered dissolves at scene boundaries. For boundary frame b and half-width h,
+    frames [b-h, b+h) blend the outgoing clip (continuing past its end) with the
+    incoming clip (first frame held before its start). Total length and every
+    clip's own frame positions are unchanged."""
+    out = []
+    if TRANSITION_FRAMES < 2:
+        return out
+    scenes = plan["scenes"]
+    for sa, sb in zip(scenes, scenes[1:]):
+        ca, cb = sa["clips"][-1], sb["clips"][0]
+        h = min(TRANSITION_FRAMES // 2, ca["n"] // 2, cb["n"] // 2)
+        if h >= 1:
+            out.append(dict(a=ca, b=cb, h=h, at=cb["f0"]))
+    return out
+
+
+def _input_args(c):
+    if c["kind"] == "placeholder":
+        return ["-f", "lavfi", "-i", f"color=c=0x0a0a0a:s={W}x{H}:r={FPS}"]
+    if c["kind"] == "image":
+        return ["-loop", "1", "-framerate", str(FPS), "-i", str(c["path"])]
+    return ["-ss", f"{c['trim_start']}", "-i", str(c["path"])]
 
 
 def render(ws: Path, plan, timing, out_path: Path, tmp: Path):
     total = plan["total_frames"]
+    raw = tmp / "mix_raw.wav"
     wav = tmp / "mix.wav"
-    write_wav(wav, build_audio(ws, plan, timing))
+    write_wav(raw, build_audio(ws, plan, timing))
+    master_audio(raw, wav, total * SPF)
 
-    clip_inputs, ov_inputs, chains, labels = [], [], [], []
-    for sc in plan["scenes"]:
-        for c in sc["clips"]:
-            idx = len(labels)
-            if c["kind"] == "placeholder":
-                clip_inputs += ["-f", "lavfi", "-i", f"color=c=0x0a0a0a:s={W}x{H}:r={FPS}"]
-            elif c["kind"] == "image":
-                clip_inputs += ["-loop", "1", "-framerate", str(FPS), "-i", str(c["path"])]
-            else:
-                clip_inputs += ["-ss", f"{c['trim_start']}", "-i", str(c["path"])]
-            labels.append(f"v{idx}")
-            chains.append(clip_filter(c, f"{idx}:v", f"v{idx}"))
-    n_clips = len(labels)
+    inputs, chains, labels = [], [], []
 
-    chains.append("".join(f"[{l}]" for l in labels) + f"concat=n={n_clips}:v=1:a=0[cat]")
-    chains.append(f"[cat]setpts=N/({FPS}*TB)[base]")
+    def add_input(args):
+        inputs.extend(args)
+        return sum(1 for a in inputs if a == "-i") - 1
 
-    cur, ov_i = "base", 0
+    for c in (c for sc in plan["scenes"] for c in sc["clips"]):
+        k = add_input(_input_args(c))
+        labels.append(f"v{len(labels)}")
+        chains.append(clip_filter(c, f"{k}:v", labels[-1]))
+
+    chains.append("".join(f"[{l}]" for l in labels) + f"concat=n={len(labels)}:v=1:a=0[cat]")
+    trs = plan_transitions(plan)
+    if not trs:
+        chains.append(f"[cat]setpts=N/({FPS}*TB)[tl]")
+    else:
+        # Frame-exact splice (no timestamp sync): base[..b-h) + window(2h) + base[b+h..)
+        chains.append(f"[cat]split={len(trs) + 1}" + "".join(f"[s{i}]" for i in range(len(trs) + 1)))
+        parts, prev_end = [], 0
+        for i, t in enumerate(trs):
+            h, b, ca, cb = t["h"], t["at"], t["a"], t["b"]
+            ko = add_input(_input_args(ca))
+            ki = add_input(_input_args(cb))
+            chains.append(f"[s{i}]trim=start_frame={prev_end}:end_frame={b - h},setpts=PTS-STARTPTS[p{i}]")
+            chains.append(clip_filter(ca, f"{ko}:v", f"to{i}", n=ca["n"] + h, window=(ca["n"] - h, ca["n"] + h)))
+            chains.append(clip_filter(cb, f"{ki}:v", f"ti{i}", n=h, pre_hold=h))
+            chains.append(f"[ti{i}]format=yuva420p,fade=t=in:s=0:n={2 * h}:alpha=1[tf{i}]")
+            chains.append(f"[to{i}][tf{i}]overlay=format=auto:shortest=1,format=yuv420p,"
+                          f"trim=end_frame={2 * h},setpts=PTS-STARTPTS[w{i}]")
+            parts += [f"p{i}", f"w{i}"]
+            prev_end = b + h
+        chains.append(f"[s{len(trs)}]trim=start_frame={prev_end},setpts=PTS-STARTPTS[p{len(trs)}]")
+        parts.append(f"p{len(trs)}")
+        chains.append("".join(f"[{x}]" for x in parts) + f"concat=n={len(parts)}:v=1:a=0,setpts=N/({FPS}*TB)[tl]")
+
+    chains.append(f"[tl]{look_filter()}[graded]")
+    cur = "graded"
+
+    ov_i = 0
     for sc in plan["scenes"]:
         for ov in sc["overlays"]:
             png = tmp / f"ov{ov_i}.png"
             render_text_png(ov["text"], ov["style"], png)
-            ov_inputs += ["-loop", "1", "-framerate", str(FPS), "-i", str(png)]
-            in_idx = n_clips + 1 + ov_i  # +1 for the audio input appended below
+            k = add_input(["-loop", "1", "-framerate", str(FPS), "-i", str(png)])
             fade = ""
             if ov["anim"] in ("fade_scale", "slide_up"):
                 fd = min(0.3, ov["n"] / FPS / 2)
                 fade = (f",fade=t=in:st=0:d={fd}:alpha=1"
                         f",fade=t=out:st={ov['n'] / FPS - fd}:d={fd}:alpha=1")
-            chains.append(f"[{in_idx}:v]format=rgba{fade},setpts=PTS-STARTPTS+{ov['f0']}/({FPS}*TB)[o{ov_i}]")
+            chains.append(f"[{k}:v]format=rgba{fade},setpts=PTS-STARTPTS+{ov['f0']}/({FPS}*TB)[o{ov_i}]")
             chains.append(f"[{cur}][o{ov_i}]overlay=enable='between(n,{ov['f0']},{ov['f0'] + ov['n'] - 1})'"
                           f":eof_action=pass:shortest=1[m{ov_i}]")
             cur = f"m{ov_i}"
             ov_i += 1
     chains.append(f"[{cur}]trim=end_frame={total},setpts=N/({FPS}*TB)[vout]")
-
-    audio_idx = n_clips
+    audio_idx = add_input(["-i", str(wav)])
 
     script = tmp / "graph.txt"
     script.write_text(";\n".join(chains))
-    cmd = (["ffmpeg", "-y", "-v", "error", "-threads", "4", "-filter_threads", "1"]
-           + clip_inputs + ["-i", str(wav)] + ov_inputs
+    cmd = (["ffmpeg", "-y", "-v", "error", "-threads", "4", "-filter_threads", "1"] + inputs
            + ["-/filter_complex", str(script),
               "-map", "[vout]", "-map", f"{audio_idx}:a",
               "-frames:v", str(total), "-r", str(FPS), "-fps_mode", "cfr",
@@ -465,18 +573,19 @@ def _err(a, b):
     return float(np.abs(a - b).mean())
 
 
-def expected_boundary_frames(c):
-    """(first, last) source frame of a sub-clip as the renderer should show them."""
+def expected_clip_frames(c, upto):
+    """Source frames 0..upto-1 of a sub-clip as the renderer shows them (graded,
+    downscaled). Indices past the source's end clamp to the last frame (hold)."""
+    look = look_filter(grain=False)
     if c["kind"] == "placeholder":
-        f = np.full((VH, VW), 10, dtype=np.float32)
-        return f, f
-    if c["kind"] == "image":
-        fr = _gray_frames(["-i", str(c["path"])], fill_filter(), 1)
-        return fr[0], fr[0]
-    inp = ["-ss", f"{c['trim_start']}", "-i", str(c["path"])]
-    pre = f"trim=duration={c['trim_end'] - c['trim_start']}," if c["trim_end"] is not None else ""
-    fr = _gray_frames(inp, f"{pre}setpts=(PTS-STARTPTS)/{c['speed']},fps={FPS},{fill_filter()}", c["n"])
-    return fr[0], fr[min(c["n"], len(fr)) - 1]
+        fr = _gray_frames(["-f", "lavfi", "-i", f"color=c=0x0a0a0a:s={W}x{H}:r={FPS}"], look, 1)
+    elif c["kind"] == "image":
+        fr = _gray_frames(["-i", str(c["path"])], f"{fill_filter()},{look}", 1)
+    else:
+        pre = f"trim=duration={c['trim_end'] - c['trim_start']}," if c["trim_end"] is not None else ""
+        fr = _gray_frames(["-ss", f"{c['trim_start']}", "-i", str(c["path"])],
+                          f"{pre}setpts=(PTS-STARTPTS)/{c['speed']},fps={FPS},{fill_filter()},{look}", upto)
+    return lambda k: fr[max(0, min(k, len(fr) - 1))]
 
 
 def verify(out_path: Path, plan, wav_path: Path = None):
@@ -531,25 +640,43 @@ def verify(out_path: Path, plan, wav_path: Path = None):
     if len(rendered) != frames:
         fails.append(f"decoded {len(rendered)} frames but container reports {frames}")
     clips = [c for sc in plan["scenes"] for c in sc["clips"]]
-    exp = [expected_boundary_frames(c) for c in clips]
+    trans = {id(t["b"]): t for t in plan_transitions(plan)}
+    in_trans = {id(t["a"]): t for t in trans.values()}
+    exp = [expected_clip_frames(c, c["n"] + (in_trans[id(c)]["h"] if id(c) in in_trans else 0)) for c in clips]
     eps = 0.5
     checked = 0
     for j, c in enumerate(clips):
         a0, a1 = c["f0"], c["f0"] + c["n"] - 1
+        tag = f"scene {c['scene_id']} clip {c['index']}"
         if a1 >= len(rendered):
-            fails.append(f"scene {c['scene_id']} clip {c['index']}: beyond rendered video")
+            fails.append(f"{tag}: beyond rendered video")
             continue
-        own_first, own_last = exp[j]
-        if j:
-            prev_last = exp[j - 1][1]
-            if _err(rendered[a0], own_first) > _err(rendered[a0], prev_last) + eps:
-                fails.append(f"scene {c['scene_id']} clip {c['index']}: first frame {a0} matches previous clip better")
-            if _err(rendered[a0 - 1], prev_last) > _err(rendered[a0 - 1], own_first) + eps:
-                fails.append(f"scene {c['scene_id']} clip {c['index']}: frame {a0 - 1} already shows this clip (cut early)")
-        if j + 1 < len(clips):
-            nxt_first = exp[j + 1][0]
-            if _err(rendered[a1], own_last) > _err(rendered[a1], nxt_first) + eps:
-                fails.append(f"scene {c['scene_id']} clip {c['index']}: last frame {a1} matches next clip better")
+        E = exp[j]
+        t = trans.get(id(c))
+        if j and t:
+            h, P = t["h"], exp[j - 1]
+            pa = clips[j - 1]["n"]
+            # window edges are pure frames: just outside it, each side shows its own clip
+            if _err(rendered[a0 + h], E(h)) > _err(rendered[a0 + h], P(pa - 1)) + eps:
+                fails.append(f"{tag}: frame {a0 + h} (end of dissolve) does not show this clip")
+            if _err(rendered[a0 - h - 1], P(pa - h - 1)) > _err(rendered[a0 - h - 1], E(0)) + eps:
+                fails.append(f"{tag}: frame {a0 - h - 1} (before dissolve) does not show previous clip")
+            # dissolve must be 50% at the cut frame (within half a frame of ramp)
+            A, B = P(pa), E(0)
+            den = float(((B - A) ** 2).sum())
+            if den > 1e3:
+                alpha = float(((rendered[a0] - A) * (B - A)).sum()) / den
+                if abs(alpha - 0.5) > 0.5 / (2 * h) + 0.03:
+                    fails.append(f"{tag}: dissolve is {alpha:.2f} at cut frame {a0}, expected 0.50")
+        elif j:
+            prev_last = exp[j - 1](clips[j - 1]["n"] - 1)
+            if _err(rendered[a0], E(0)) > _err(rendered[a0], prev_last) + eps:
+                fails.append(f"{tag}: first frame {a0} matches previous clip better")
+            if _err(rendered[a0 - 1], prev_last) > _err(rendered[a0 - 1], E(0)) + eps:
+                fails.append(f"{tag}: frame {a0 - 1} already shows this clip (cut early)")
+        if j + 1 < len(clips) and id(clips[j + 1]) not in trans:
+            if _err(rendered[a1], E(c["n"] - 1)) > _err(rendered[a1], exp[j + 1](0)) + eps:
+                fails.append(f"{tag}: last frame {a1} matches next clip better")
         checked += 1
     info.append(f"{checked}/{len(clips)} clip boundaries checked")
     print("  verify: " + "; ".join(info))

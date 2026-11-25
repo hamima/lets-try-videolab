@@ -119,3 +119,35 @@ def test_overlays_punch_speed_multiclip(tmp_path):
     out = tmp_path / "out.mp4"
     wav = asm.render(ws, plan, tm, out, tmp_path)
     assert asm.verify(out, plan, wav) == []
+
+
+def _lufs(path):
+    r = subprocess.run(["ffmpeg", "-v", "info", "-i", str(path), "-af", "loudnorm=print_format=json",
+                        "-f", "null", "-"], capture_output=True, text=True)
+    import re
+    return float(json.loads(re.search(r"\{[^{}]*input_i[^{}]*\}", r.stderr, re.S).group(0))["input_i"])
+
+
+def test_loudness_mastered_and_length_exact(tmp_path):
+    ws = make_workspace(tmp_path, SLOTS)
+    plan, tm, _ = asm.preflight(ws)
+    out = tmp_path / "out.mp4"
+    wav = asm.render(ws, plan, tm, out, tmp_path)
+    assert abs(_lufs(wav) - asm.TARGET_LUFS) < 1.5
+    assert len(asm.decode_audio(wav)) == plan["total_frames"] * asm.SPF
+
+
+def test_dissolve_is_linear_and_centered(tmp_path, monkeypatch):
+    monkeypatch.setattr(asm, "LOOK_ENABLED", False)
+    ws = make_workspace(tmp_path, SLOTS)
+    plan, tm, _ = asm.preflight(ws)
+    out = tmp_path / "out.mp4"
+    asm.render(ws, plan, tm, out, tmp_path)
+    t = asm.plan_transitions(plan)[0]
+    h, b = t["h"], t["at"]
+    fr = asm._gray_frames(["-i", str(out)], "null")
+    a, bb = float(fr[b - h - 1].mean()), float(fr[b + h].mean())  # pure frames on each side
+    alphas = [(float(fr[b - h + k].mean()) - a) / (bb - a) for k in range(2 * h)]
+    for k, al in enumerate(alphas):
+        assert abs(al - k / (2 * h)) < 0.03, alphas
+    assert abs(alphas[h] - 0.5) < 0.03

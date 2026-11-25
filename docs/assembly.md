@@ -30,7 +30,10 @@ Frame-exact ffmpeg assembly (no MoviePy). Exits non-zero on preflight or verific
 - **One sample grid:** 48 kHz, exactly `frames × 1600` samples; music (ducked, looped if short) and sfx placed at frame-derived sample offsets.
 - **One encode:** single filter graph, `setpts=N/(30*TB)`, fixed threads, bitexact flags (identical re-renders).
 - **Preflight:** missing files, EDL/timing scene-id mismatch, gaps/overlaps, `scene_count`, real `narration.mp3` length vs `total_duration_sec`; warns on every trim/freeze and unknown effect.
-- **Verify:** frame count, A/V length (≤1 frame), stream start offsets (<25 ms), audio lag, and first/last frame of every sub-clip must match its own source better than its neighbour.
+- **Transitions:** an 8-frame centered dissolve at every scene boundary (`TRANSITION_FRAMES`, 0 disables). The outgoing clip keeps playing 4 frames past the cut and the incoming one holds its first frame 4 frames before it, so length and cut frames stay exact (50% blend exactly on the cut frame).
+- **Look:** one grade for the whole timeline (soft S-curve, +saturation/contrast, vignette), applied before text overlays. Optional LUT: `luts/look.cube` or `ASSEMBLE_LUT=/path.cube`. `ASSEMBLE_LOOK=0` disables; `ASSEMBLE_GRAIN=1` adds film grain (slower, bigger file).
+- **Audio master:** highpass + gentle compression + two-pass loudnorm to -14 LUFS / -1.5 dBTP, re-fitted to the exact sample grid.
+- **Verify:** frame count, A/V length (≤1 frame), stream start offsets (<25 ms), audio lag, and first/last frame of every sub-clip must match its own source better than its neighbour; dissolve edges must show the right clips and the blend must be 50% at the cut.
 - Text overlays are rendered to PNGs via `text_overlay.py` (shared with Step 18 below) and composited by ffmpeg.
 
 Accepts the flat-list EDL and the legacy `{project, timeline}` form; tolerates `asset_K` vs `asset_<scene>.K` folder naming.
