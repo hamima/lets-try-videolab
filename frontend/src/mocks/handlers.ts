@@ -17,7 +17,7 @@ const STEP_NAMES: Record<string, string> = {
   '9': 'Video Animation', '10': 'Narration Script', '11': 'Narration Audio',
   '12': 'Music Prompt', '13': 'Music Audio', '14': 'Asset Inventory',
   '15': 'Narration Timing', '16': 'Edit Decision List', '17': 'Final Assembly',
-  '18': 'Platform Metadata',
+  '18': 'Subtitles', '19': 'Platform Metadata',
 }
 
 const STEP_TYPES: Record<string, string> = {
@@ -25,7 +25,7 @@ const STEP_TYPES: Record<string, string> = {
   '6': 'fetch_assets', '7': 'imagen', '8': 'animation_prompt',
   '9': 'video_animation', '10': 'gemini', '11': 'tts', '12': 'gemini',
   '13': 'music', '14': 'script', '15': 'script', '16': 'gemini',
-  '17': 'script', '18': 'gemini',
+  '17': 'script', '18': 'script', '19': 'gemini',
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,10 +63,10 @@ const INITIAL_RUNS: RunState[] = [
     start_step: 7,
     start_time: Date.now() - 3000,
     ms_per_step: 8000,
-    max_step: 18,
+    max_step: 19,
     steps_completed: 7,
     steps_failed: 0,
-    steps_total: 18,
+    steps_total: 19,
     videos: [],
     failed_steps: [],
   },
@@ -80,10 +80,10 @@ const INITIAL_RUNS: RunState[] = [
     start_step: 18,
     start_time: 0,
     ms_per_step: 8000,
-    max_step: 18,
+    max_step: 19,
     steps_completed: 18,
     steps_failed: 0,
-    steps_total: 18,
+    steps_total: 19,
     videos: [
       'workspace/science/2026-08-19_091544/assets/scene_1/asset_1/animated.mp4',
       'workspace/science/2026-08-19_091544/assets/scene_2/asset_1/animated.mp4',
@@ -101,10 +101,10 @@ const INITIAL_RUNS: RunState[] = [
     start_step: 5,
     start_time: 0,
     ms_per_step: 8000,
-    max_step: 18,
+    max_step: 19,
     steps_completed: 5,
     steps_failed: 2,
-    steps_total: 18,
+    steps_total: 19,
     videos: [],
     failed_steps: ['6', '7'],
   },
@@ -131,7 +131,7 @@ function resolveRun(r: RunState): { completed: number; activeStep: string | null
 
 function buildStepList(r: RunState) {
   const { completed, activeStep } = resolveRun(r)
-  return Array.from({ length: 18 }, (_, i) => {
+  return Array.from({ length: 19 }, (_, i) => {
     const id = String(i + 1)
     const n = i + 1
     let status: 'pending' | 'running' | 'done' | 'failed' = 'pending'
@@ -161,7 +161,7 @@ function toSummary(r: RunState) {
     active_step: activeStep,
     steps_completed: completed,
     steps_failed: r.failed_steps.length,
-    steps_total: 18,
+    steps_total: 19,
     videos: r.videos,
     topic: getTopic(r.domain),
   }
@@ -182,7 +182,7 @@ function getRerunStatus(domain: string, runId: string, stepId: string): 'running
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mock content — all 18 steps, two domains with rich data
+// Mock content — all 19 steps, two domains with rich data
 // ─────────────────────────────────────────────────────────────────────────────
 
 const POLITICAL = 'political'
@@ -583,6 +583,16 @@ SUMMARY
     '17': { kind: 'video', url: null },
 
     '18': {
+      kind: 'subtitles',
+      captions: [
+        { scene_id: 1, start_sec: 0.0,  end_sec: 3.4,  text: 'Global trust in governments has hit an\nall-time low of 28%.' },
+        { scene_id: 1, start_sec: 3.4,  end_sec: 7.2,  text: 'The lowest ever recorded.' },
+        { scene_id: 2, start_sec: 18.4, end_sec: 22.9, text: 'But this collapse did not happen in a\nvacuum.' },
+        { scene_id: 3, start_sec: 34.1, end_sec: 38.6, text: 'The footage from Brussels, São Paulo,\nJakarta, and Detroit tells a different story.' },
+      ],
+    },
+
+    '19': {
       kind: 'json',
       content: {
         youtube_title: 'The Collapse of Trust: How Democracy Is Fracturing in 2026',
@@ -880,6 +890,15 @@ SUMMARY
     '17': { kind: 'video', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' },
 
     '18': {
+      kind: 'subtitles',
+      captions: [
+        { scene_id: 1, start_sec: 0.0,  end_sec: 4.2,  text: 'Quantum computing has crossed the threshold\nfrom laboratory curiosity to practical utility.' },
+        { scene_id: 2, start_sec: 21.4, end_sec: 25.1, text: 'Error-corrected qubits at scale changed\neverything.' },
+        { scene_id: 3, start_sec: 42.8, end_sec: 47.5, text: 'The competition for quantum supremacy is\nas fierce as the space race.' },
+      ],
+    },
+
+    '19': {
       kind: 'json',
       content: {
         youtube_title: 'The Quantum Leap: How Quantum Computing Is Changing Everything in 2026',
@@ -1056,7 +1075,7 @@ export const tasksHandlers = [
       max_step: isPreview ? 1 : 0,
       steps_completed: 0,
       steps_failed: 0,
-      steps_total: 18,
+      steps_total: 19,
       videos: [],
       failed_steps: [],
     }

@@ -15,8 +15,13 @@ from pydantic import BaseModel
 
 import auth
 
-BASE_DIR      = Path(__file__).parent.parent
-SETTINGS_FILE = BASE_DIR / "settings.json"
+BASE_DIR = Path(__file__).parent.parent
+# DATA_DIR defaults to BASE_DIR (today's behavior). Set it to a mounted
+# persistent volume's path (see docs/deployment-oracle-cloud.md) to survive
+# container/redeploy recreation — matches tasks.py's WORKSPACE_ROOT override
+# so both land on the same volume.
+DATA_DIR      = Path(os.environ.get("DATA_DIR", BASE_DIR))
+SETTINGS_FILE = DATA_DIR / "settings.json"
 
 SETTINGS_KEYS = [
     {"key": "GEMINI_API_KEY",     "label": "Gemini API Key",     "secret": True},

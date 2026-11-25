@@ -1,0 +1,17 @@
+# Keep local run data, dependencies, and VCS metadata out of the build
+# context/image — none of this belongs baked into a container.
+.git
+.venv
+node_modules
+frontend/dist
+frontend/node_modules
+workspace/
+output/
+settings.json
+.env
+.env.*
+!backend/.env.example
+*.log
+__pycache__
+*.pyc
+.pytest_cache

@@ -37,7 +37,6 @@ BASE_DIR = Path(__file__).parent.parent
 WORKSPACE = Path(os.environ.get("WORKSPACE_DIR", BASE_DIR / "workspace"))
 OUTPUT_DIR = WORKSPACE / "output"
 SFX_DIR = BASE_DIR / "sfx"
-FONT_PATH = str(BASE_DIR / "fonts" / "NotoSansDevanagari-Bold.ttf")
 
 W, H, FPS = 1920, 1080, 30
 SR = 48000
@@ -53,14 +52,6 @@ SFX_BASE_VOLUME = 0.4
 
 KNOWN_EFFECTS = {"speed", "zoom_punch"}
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
-
-TEXT_STYLES = {
-    "dramatic_center": dict(font_size=72, color=(255, 255, 255, 255), position="center", bg_type="gradient", shadow=True),
-    "stat_lower_third": dict(font_size=54, color=(255, 255, 255, 255), position="lower_left", bg_type="pill", shadow=False),
-    "name_tag": dict(font_size=42, color=(255, 255, 255, 255), position="lower_left", bg_type="bar", shadow=False),
-    "quote": dict(font_size=48, color=(240, 240, 240, 255), position="center", bg_type="none", shadow=True),
-    "location": dict(font_size=36, color=(255, 255, 255, 255), position="top_right", bg_type="pill", shadow=False),
-}
 
 
 class PreflightError(Exception):
@@ -353,42 +344,15 @@ def write_wav(path: Path, x: np.ndarray):
 
 
 # ----------------------------------------------------------------------------
-# Text overlay rendering (PNG)
+# Text overlay rendering (PNG, shared with step 18)
 # ----------------------------------------------------------------------------
 
 def render_text_png(text, style_name, out: Path):
-    from PIL import Image, ImageDraw, ImageFont
-    st = TEXT_STYLES.get(style_name, TEXT_STYLES["dramatic_center"])
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype(FONT_PATH, st["font_size"])
-    except (IOError, OSError):
-        font = ImageFont.load_default()
-    bb = d.textbbox((0, 0), text, font=font)
-    tw, th = bb[2] - bb[0], bb[3] - bb[1]
-    pos = st["position"]
-    if pos == "lower_left":
-        x, y = 80, H - th - 120
-    elif pos == "top_right":
-        x, y = W - tw - 80, 60
-    else:
-        x, y = (W - tw) // 2, (H - th) // 2
-    pad = 20
-    bg = st["bg_type"]
-    if bg == "gradient":
-        hh = th + pad * 2
-        for i in range(hh):
-            a = int(180 * (1 - abs(i - hh / 2) / (hh / 2)))
-            d.rectangle([x - pad * 3, y - pad + i, x + tw + pad * 3, y - pad + i + 1], fill=(0, 0, 0, a))
-    elif bg == "pill":
-        d.rounded_rectangle([x - pad, y - pad, x + tw + pad, y + th + pad], radius=12, fill=(0, 0, 0, 180))
-    elif bg == "bar":
-        d.rectangle([x - pad * 2, y - pad, x + tw + pad * 2, y + th + pad], fill=(0, 0, 0, 200))
-    if st["shadow"]:
-        d.text((x + 2, y + 2), text, font=font, fill=(0, 0, 0, 180))
-    d.text((x, y), text, font=font, fill=st["color"])
-    img.save(out)
+    """Render via the shared text_overlay module (same styles as step 18)."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    from text_overlay import render_text_overlay
+    from PIL import Image
+    Image.fromarray(render_text_overlay(text, style_name, (W, H))).save(out)
 
 
 # ----------------------------------------------------------------------------

@@ -29,7 +29,7 @@ def resolve_prompt_file(step_id: str, domain: str, prompt_file: str = None) -> P
 |------|-------------|-------------------|-------------|
 | 1 | `01_research.md` | none | `research_dossier.md` |
 | 2 | `02_story.md` | `{{research_dossier}}` | `story_script.md` |
-| 18 | `02b_platform_metadata.md` | `{{research_dossier}}` + `{{story_script}}` | `platform_metadata.json` |
+| 18 (19 in the web app*) | `02b_platform_metadata.md` | `{{research_dossier}}` + `{{story_script}}` | `platform_metadata.json` |
 | 3 | `03_scene_breakdown.md` | `{{story_script}}` + `{{duration_range}}` | `scene_plan.md` |
 | 4 | `04_asset_planning.md` | `{{scene_plan}}` + `{{total_duration_seconds}}` + `{{target_ai_video_seconds}}` | `asset_manifest.md` |
 | 5 | `05_asset_acquisition.md` | `{{asset_manifest}}` | `asset_acquisition.md` |
@@ -37,6 +37,8 @@ def resolve_prompt_file(step_id: str, domain: str, prompt_file: str = None) -> P
 | 10 | `10_narration.md` | `{{story_script}}` | `narration_script.txt` |
 | 12 | `12_music.md` | `{{scene_plan}}` | `music_prompt.txt` |
 | 16 | `16_creative_director.md` | `{{asset_inventory}}` + `{{narration_timing}}` | `edl.json` |
+
+\* The web app's pipeline (`backend/tasks.py`) inserts a web-app-only step 18 (Subtitles, not a Gemini step — see [Assembly](assembly.md)) between Final Assembly and Platform Metadata, shifting Platform Metadata to step 19 there. `automate.py`'s own CLI pipeline is unchanged and keeps Platform Metadata at step 18.
 
 ### Gemini API call with quota fallback
 

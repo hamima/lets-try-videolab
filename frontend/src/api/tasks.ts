@@ -1,6 +1,10 @@
 import axios from 'axios'
 
-const http = axios.create({ baseURL: '/tasks', withCredentials: true })
+// VITE_API_URL optionally points the pipeline API at a different host (e.g. a
+// deployed backend instead of the dev proxy). Unset by default — baseURL then
+// resolves to the plain relative path '/tasks', exactly as before, relying on
+// same-origin serving (the Vite dev proxy locally, a reverse proxy in prod).
+const http = axios.create({ baseURL: `${import.meta.env.VITE_API_URL ?? ''}/tasks`, withCredentials: true })
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,6 +80,13 @@ export interface Scene {
   beats: SceneBeat[]
 }
 
+export interface SubtitleCaption {
+  scene_id: number
+  start_sec: number
+  end_sec: number
+  text: string
+}
+
 export interface AssetFile {
   type: 'image' | 'text'
   label: string
@@ -105,6 +116,7 @@ export type StepContent =
   | { kind: 'research'; sections: ResearchSection[] }
   | { kind: 'story'; sections: ResearchSection[] }
   | { kind: 'scene_plan'; scenes: Scene[] }
+  | { kind: 'subtitles'; captions: SubtitleCaption[] }
   | { kind: 'assets_viewer'; scenes: AssetFolderScene[] }
   | { kind: 'audio'; url: string | null }
   | { kind: 'video'; url: string | null }
@@ -203,7 +215,7 @@ export async function updateStepContent(
   domain: string,
   runId: string,
   stepId: string,
-  data: { content?: string; sections?: ResearchSection[]; scenes?: Scene[]; asset_scenes?: AssetScene[] },
+  data: { content?: string; sections?: ResearchSection[]; scenes?: Scene[]; asset_scenes?: AssetScene[]; captions?: SubtitleCaption[] },
   owner?: string,
 ): Promise<void> {
   await http.put(`/runs/${domain}/${runId}/steps/${stepId}/content`, data, { params: owner ? { owner } : {} })

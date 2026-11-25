@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 import auth
 import cost_estimate
+import subtitles
 from auth import CurrentUser
 
 
@@ -63,10 +64,16 @@ ELEVENLABS_MODEL      = "eleven_v3"
 # Paths — project root is two levels up from this file
 # ─────────────────────────────────────────────────────────────
 
-BASE_DIR       = Path(__file__).parent.parent
-PROMPTS_DIR    = BASE_DIR / "prompts"
-SCRIPTS_DIR    = BASE_DIR / "scripts"
-WORKSPACE_ROOT = BASE_DIR / "workspace"
+BASE_DIR    = Path(__file__).parent.parent
+PROMPTS_DIR = BASE_DIR / "prompts"
+SCRIPTS_DIR = BASE_DIR / "scripts"
+
+# DATA_DIR defaults to BASE_DIR (today's behavior: workspace/ lives alongside
+# the code). Set it to a mounted persistent volume's path (e.g. /data in
+# docker-compose.yml — see docs/deployment-oracle-cloud.md) to survive
+# container/redeploy recreation — the code checkout itself is ephemeral.
+DATA_DIR       = Path(os.environ.get("DATA_DIR", BASE_DIR))
+WORKSPACE_ROOT = DATA_DIR / "workspace"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -109,7 +116,8 @@ STEPS = [
     {"id": "15", "name": "Narration Timing",              "type": "script",           "script": "analyze_timing.py",                                             "output": "narration_timing.json"},
     {"id": "16", "name": "Edit Decision List",            "type": "gemini",           "inputs": {"asset_inventory": "asset_inventory.txt", "narration_timing": "narration_timing.json"}, "output": "edl.json"},
     {"id": "17", "name": "Final Assembly",                "type": "script",           "script": "assemble.py",                                                   "output": "output/final_video.mp4"},
-    {"id": "18", "name": "Platform Metadata",             "type": "gemini",           "prompt_file": "02b_platform_metadata.md", "inputs": {"research_dossier": "research_dossier.md", "story_script": "story_script.md"}, "output": "platform_metadata.json"},
+    {"id": "18", "name": "Subtitles",                     "type": "script",           "script": "generate_subtitles.py",         "inputs": {"narration_script": "narration_script.txt", "narration_timing": "narration_timing.json"}, "output": "subtitle.md"},
+    {"id": "19", "name": "Platform Metadata",             "type": "gemini",           "prompt_file": "02b_platform_metadata.md", "inputs": {"research_dossier": "research_dossier.md", "story_script": "story_script.md"}, "output": "platform_metadata.json"},
 ]
 
 STEPS_BY_ID: dict = {s["id"]: s for s in STEPS}
@@ -247,7 +255,7 @@ _FIXTURE_MAP: dict = {
     "10": "narration_script.txt",
     "12": "music_prompt.txt",
     "16": "edl.json",
-    "18": "platform_metadata.json",
+    "19": "platform_metadata.json",
 }
 
 
@@ -765,11 +773,6 @@ def _run_video_animation(step: dict, ws: Path, state: dict) -> None:
 
 
 def _run_elevenlabs_tts(step: dict, ws: Path, state: dict) -> None:
-    if MOCK_AI():
-        from mocks.generators import generate_silent_audio
-        generate_silent_audio(ws / "narration.mp3", duration_seconds=10.0, fmt="mp3")
-        return
-
     narration_script = (ws / "narration_script.txt").read_text()
     marker = "=== ELEVENLABS VERSION ==="
     tts_text = (
@@ -778,22 +781,34 @@ def _run_elevenlabs_tts(step: dict, ws: Path, state: dict) -> None:
         else narration_script.strip()
     )
 
+    if MOCK_AI():
+        from mocks.generators import generate_narration_alignment, generate_silent_audio
+        duration = 10.0
+        generate_silent_audio(ws / "narration.mp3", duration_seconds=duration, fmt="mp3")
+        (ws / "narration_alignment.json").write_text(
+            json.dumps(generate_narration_alignment(tts_text, duration_seconds=duration))
+        )
+        return
+
     if USE_OPENROUTER():
         from open_router.speech import generate_speech
         (ws / "narration.mp3").write_bytes(generate_speech(tts_text, api_key=OPENROUTER_API_KEY()))
         return
 
+    import base64
     import requests as _requests
 
     voice_id = state.get("voice_id") or DOMAIN_VOICE_MAP["general_knowledge"]
     response = _requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/with-timestamps",
         headers={"xi-api-key": ELEVENLABS_API_KEY(), "Content-Type": "application/json"},
         json={"text": tts_text, "model_id": ELEVENLABS_MODEL,
               "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
     )
     response.raise_for_status()
-    (ws / "narration.mp3").write_bytes(response.content)
+    payload = response.json()
+    (ws / "narration.mp3").write_bytes(base64.b64decode(payload["audio_base64"]))
+    (ws / "narration_alignment.json").write_text(json.dumps(payload["alignment"]))
 
 
 def _run_elevenlabs_music(step: dict, ws: Path, state: dict) -> None:
@@ -1031,6 +1046,7 @@ class UpdateStepContentRequest(BaseModel):
     sections: Optional[list] = None      # research / story
     scenes: Optional[list] = None        # scene_plan
     asset_scenes: Optional[list] = None  # asset_manifest / asset_acquisition
+    captions: Optional[list] = None      # subtitles
 
 
 class SaveAssetFilesRequest(BaseModel):
@@ -1691,7 +1707,8 @@ STEP_CONTENT_CONFIG: dict = {
     "15": {"kind": "json",     "file": "narration_timing.json"},
     "16": {"kind": "json",     "file": "edl.json"},
     "17": {"kind": "video",    "file": "output/final_video.mp4"},
-    "18": {"kind": "json",     "file": "platform_metadata.json"},
+    "18": {"kind": "subtitles", "file": "subtitle.md"},
+    "19": {"kind": "json",     "file": "platform_metadata.json"},
 }
 
 
@@ -1740,6 +1757,12 @@ def get_step_content(
         if not fp.exists():
             return {"kind": kind, "scenes": []}
         return {"kind": kind, "scenes": _parse_asset_acquisition(fp.read_text())}
+
+    if kind == "subtitles":
+        fp = ws / cfg["file"]
+        if not fp.exists():
+            return {"kind": kind, "captions": []}
+        return {"kind": kind, "captions": subtitles.parse_subtitles(fp.read_text())}
 
     if kind in ("markdown", "text"):
         fp = ws / cfg["file"]
@@ -1932,7 +1955,9 @@ def update_step_content(
         raise HTTPException(status_code=404, detail=str(e))
 
     cfg = STEP_CONTENT_CONFIG.get(step_id)
-    if not cfg or cfg["kind"] not in ("markdown", "text", "research", "story", "scene_plan", "asset_manifest", "asset_acquisition"):
+    if not cfg or cfg["kind"] not in (
+        "markdown", "text", "research", "story", "scene_plan", "asset_manifest", "asset_acquisition", "subtitles",
+    ):
         raise HTTPException(status_code=400, detail=f"Step {step_id} content is not editable")
 
     fp = ws / cfg["file"]
@@ -1955,6 +1980,8 @@ def update_step_content(
             fp.write_text(_serialize_asset_manifest(body.asset_scenes))
         else:
             fp.write_text(_serialize_asset_acquisition(body.asset_scenes))
+    elif body.captions is not None:
+        fp.write_text(subtitles.serialize_subtitles(body.captions))
     elif body.content is not None:
         fp.write_text(body.content)
     else:
@@ -2194,7 +2221,38 @@ async def _lifespan(_app: FastAPI):
     yield
 
 
+def _parse_allowed_origins(raw: str) -> list:
+    """Parse ALLOWED_ORIGINS ('comma,separated,origins') into a clean list,
+    dropping blanks from stray commas/whitespace. Empty input -> []."""
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 app = FastAPI(title="VidLife Tasks API", lifespan=_lifespan)
+
+# CORS: only needed when the frontend is served from a different origin than
+# the backend (e.g. a static host + a separately-deployed API, as in
+# render.yaml) — local dev goes through Vite's same-origin proxy and never
+# hits this. ALLOWED_ORIGINS is a comma-separated list of exact origins;
+# left unset, no CORS middleware is added and cross-origin requests are
+# simply not allowed (today's behavior, unchanged).
+_allowed_origins = _parse_allowed_origins(os.environ.get("ALLOWED_ORIGINS", ""))
+if _allowed_origins:
+    from fastapi.middleware.cors import CORSMiddleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=True,  # the session cookie requires this — "*" origins can't be combined with it
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.get("/health")
+def health():
+    """Liveness/readiness check for deploy platforms (e.g. Render's healthCheckPath)."""
+    return {"status": "ok"}
+
+
 app.include_router(router)
 app.include_router(_settings.router, prefix="/tasks")
 app.include_router(auth.router, prefix="/tasks")

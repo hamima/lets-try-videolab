@@ -7,6 +7,7 @@ Both are already required by the main pipeline, so no new dependencies.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -56,6 +57,30 @@ def generate_silent_audio(path: Path, duration_seconds: float = 10.0, fmt: str =
         check=True,
         capture_output=True,
     )
+
+
+def generate_narration_alignment(text: str, duration_seconds: float = 10.0) -> dict:
+    """Build a synthetic character-level alignment matching the shape of
+    ElevenLabs' /with-timestamps response, evenly spacing *text*'s characters
+    across *duration_seconds*. Used by Mock AI mode so the character-level
+    subtitle-chunking path (the primary path, not just its pause-heuristic
+    fallback) gets exercised without a real ElevenLabs call.
+
+    Strips <break .../>-style pacing tags first — they aren't spoken words,
+    and a real alignment response wouldn't carry their literal characters
+    either."""
+    text = re.sub(r'<[^>]*>', '', text)
+    characters = list(text) or [" "]
+    per_char = duration_seconds / len(characters)
+
+    starts = [round(i * per_char, 3) for i in range(len(characters))]
+    ends = [round((i + 1) * per_char, 3) for i in range(len(characters))]
+
+    return {
+        "characters": characters,
+        "character_start_times_seconds": starts,
+        "character_end_times_seconds": ends,
+    }
 
 
 def generate_placeholder_video(path: Path, duration_seconds: float = 5.0) -> None:
