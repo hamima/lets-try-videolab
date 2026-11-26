@@ -1,543 +1,725 @@
 #!/usr/bin/env python3
 """
-Step 14: Final video assembly from EDL v2 with narration-locked timing,
-multi-clip scenes, text overlays, SFX, zoom punches, and music ducking.
+Step 17: Frame-exact final assembly.
 
+Alignment is built in by construction, rejected at preflight, and verified
+after render:
 
-Uses narration_timing.json as the MASTER CLOCK.
+  * Absolute frame grid: scene start frame = round(start_sec * FPS) from
+    narration_timing.json. Never a running sum of durations, so rounding error
+    cannot accumulate. Each scene ends where the next begins (no gaps/overlaps).
+  * Narration decides scene length: the slot beats the clip's duration_sec.
+    Long clips are trimmed, short clips hold their last frame. Never stretched.
+  * Narration is untouched: decoded once, placed at t=0, no per-scene cutting.
+  * One sample grid: all audio is 48 kHz, exactly total_frames * 1600 samples.
+    Music/sfx are placed at absolute-frame sample offsets.
+  * One encode: single filter graph, one mux, fixed threads, bitexact flags.
+    setpts=N/(FPS*TB) re-stamps every frame from its index.
 
+Reads:  <ws>/edl.json, narration_timing.json, narration.mp3, music.wav, assets/
+Writes: <ws>/output/final_video.mp4
 
-Reads:  workspace/edl.json
-       workspace/narration_timing.json
-       workspace/narration.mp3
-       workspace/music.wav
-       assets/scene_X/...
-       sfx/*.wav
-       fonts/NotoSansDevanagari-Bold.ttf
-Writes: <workspace>/output/final_video.mp4
+Usage:  assemble.py [--preflight-only | --verify-only]
+Exit code is non-zero if preflight or verification fails.
 """
-
 
 import json
 import os
 import re
+import subprocess
 import sys
-import numpy as np
+import tempfile
 from pathlib import Path
 
-
-try:
-   from moviepy import (
-       VideoFileClip, AudioFileClip, CompositeAudioClip,
-       concatenate_videoclips, ColorClip,
-   )
-except ImportError:
-   print("MoviePy not found. Install with: pip install moviepy")
-   print("Also ensure ffmpeg is installed: brew install ffmpeg")
-   sys.exit(1)
-
-sys.path.insert(0, str(Path(__file__).parent))
-from text_overlay import apply_text_overlays  # noqa: E402
-
+import numpy as np
 
 BASE_DIR = Path(__file__).parent.parent
-# WORKSPACE_DIR is set by backend/tasks.py's _run_script() to the per-run workspace
-# (workspace/<domain>/<run_id>); fall back to the repo-root workspace/ for standalone use.
 WORKSPACE = Path(os.environ.get("WORKSPACE_DIR", BASE_DIR / "workspace"))
-ASSETS_DIR = WORKSPACE / "assets"
-# Final output lives inside the run's own workspace — matches tasks.py's/
-# automate.py's output_exists() treatment of "output/"-prefixed step outputs
-# as workspace-relative, so each run's assembled video is independent.
 OUTPUT_DIR = WORKSPACE / "output"
 SFX_DIR = BASE_DIR / "sfx"
 
+W, H, FPS = 1920, 1080, 30
+SR = 48000
+SPF = SR // FPS  # samples per frame (1600)
+NARRATION_TOLERANCE_SEC = 0.15
+MAX_START_OFFSET_SEC = 0.025
 
-TARGET_WIDTH = 1920
-TARGET_HEIGHT = 1080
-FPS = 30
-
-
-MUSIC_VOLUME_DURING_SPEECH = 0.12
-MUSIC_VOLUME_DURING_PAUSE = 0.35
+MUSIC_SPEECH_GAIN = 0.12
+MUSIC_PAUSE_GAIN = 0.35
 DUCK_FADE_SEC = 0.3
+MUSIC_FADE_OUT_SEC = 1.0
 SFX_BASE_VOLUME = 0.4
 
-
-# FONT_PATH, TEXT_STYLES, render_text_overlay, apply_text_animation, and
-# apply_text_overlays now live in text_overlay.py (shared with step 18's
-# generate_subtitles.py) — imported above.
-
-
-
-
-# ----------------------------
-# PATH NORMALIZATION
-# ----------------------------
-
-
-def normalize_asset_path(path_str):
-   """Fix common Gemini path mistakes."""
-   if not path_str:
-       return path_str
-   path_str = re.sub(r'assets/SCENE\s+(\d+)/', lambda m: f'assets/scene_{m.group(1)}/', path_str)
-   path_str = re.sub(r'assets/SCENE_(\d+)/', lambda m: f'assets/scene_{m.group(1)}/', path_str)
-   if not path_str.startswith("assets/") and path_str.startswith("scene_"):
-       path_str = "assets/" + path_str
-   return path_str
-
-
-
-
-# ----------------------------
-# SCENE NORMALIZATION (v1 → v2 compat)
-# ----------------------------
-
-
-def normalize_scene(entry):
-   """Convert legacy single-asset scene to multi-clip format."""
-   if "clips" in entry:
-       for clip in entry["clips"]:
-           if "path" in clip:
-               clip["path"] = normalize_asset_path(clip["path"])
-       return entry
-   asset = entry.get("asset", {})
-   if asset.get("path"):
-       asset["path"] = normalize_asset_path(asset["path"])
-   clip_entry = {
-       "path": asset.get("path"),
-       "type": asset.get("type", "video"),
-       "trim_start_sec": asset.get("trim_start_sec", 0),
-       "trim_end_sec": asset.get("trim_end_sec"),
-       "duration_sec": entry.get("_actual_duration", entry.get("duration_sec", 5)),
-       "effects": entry.get("effects", {}),
-   }
-   entry["clips"] = [clip_entry]
-   entry.setdefault("text_overlays", [])
-   entry.setdefault("sfx", [])
-   return entry
-
-
-
-
-# ----------------------------
-# VIDEO HELPERS
-# ----------------------------
-
-
-def resize_to_fill(clip, target_w, target_h):
-   clip_aspect = clip.w / clip.h
-   target_aspect = target_w / target_h
-   if clip_aspect > target_aspect:
-       new_height = target_h
-       new_width = int(clip_aspect * target_h)
-   else:
-       new_width = target_w
-       new_height = int(target_w / clip_aspect)
-   clip = clip.resized((new_width, new_height))
-   x_center = new_width // 2
-   y_center = new_height // 2
-   clip = clip.cropped(
-       x1=x_center - target_w // 2,
-       y1=y_center - target_h // 2,
-       x2=x_center + target_w // 2,
-       y2=y_center + target_h // 2,
-   )
-   return clip
-
-
-
-
-def apply_zoom_punch(clip, punch_config):
-   """Apply a quick emphasis zoom at a specific moment in the clip."""
-   if not punch_config:
-       return clip
-   at = punch_config.get("at_sec", 0)
-   scale = punch_config.get("scale", 1.15)
-   dur = punch_config.get("duration_sec", 0.3)
-
-
-   def zoom_func(t):
-       dist = abs(t - at)
-       half_dur = dur / 2
-       if dist > half_dur:
-           return 1.0
-       progress = 1.0 - (dist / half_dur)
-       return 1.0 + (scale - 1.0) * progress
-
-
-   return clip.resized(zoom_func)
-
-
-
-
-# ----------------------------
-# SINGLE CLIP BUILDER
-# ----------------------------
-
-
-def build_single_clip(clip_data: dict, duration: float, scene_id: int):
-   """Build a clip for one sub-clip entry."""
-   clip_type = clip_data.get("type", "video")
-   clip_path = clip_data.get("path")
-   effects = clip_data.get("effects", {})
-
-
-   if clip_type == "placeholder" or clip_path is None:
-       clip = ColorClip(size=(TARGET_WIDTH, TARGET_HEIGHT), color=(10, 10, 10))
-       return clip.with_duration(duration)
-
-
-   asset_path = WORKSPACE / clip_path
-
-
-   if not asset_path.exists():
-       print(f"    WARNING - not found: {asset_path.name}, using black")
-       clip = ColorClip(size=(TARGET_WIDTH, TARGET_HEIGHT), color=(10, 10, 10))
-       return clip.with_duration(duration)
-
-
-   # Video
-   try:
-       clip = VideoFileClip(str(asset_path))
-   except (IOError, OSError):
-       print(f"    WARNING - corrupted: {asset_path.name}, using black")
-       clip = ColorClip(size=(TARGET_WIDTH, TARGET_HEIGHT), color=(10, 10, 10))
-       return clip.with_duration(duration)
-
-
-   trim_start = clip_data.get("trim_start_sec", 0)
-   trim_end = clip_data.get("trim_end_sec", clip.duration)
-   clip = clip.subclipped(trim_start, min(trim_end, clip.duration))
-
-
-   speed = effects.get("speed", 1.0)
-   if speed != 1.0 and speed > 0:
-       clip = clip.with_speed_scaled(speed)
-
-
-   if clip.duration < duration:
-       loops_needed = int(duration / clip.duration) + 1
-       clip = concatenate_videoclips([clip] * loops_needed)
-
-
-   clip = clip.subclipped(0, duration)
-   clip = resize_to_fill(clip, TARGET_WIDTH, TARGET_HEIGHT)
-   clip = clip.without_audio()
-   return clip
-
-
-
-
-# ----------------------------
-# TEXT OVERLAYS — see text_overlay.py (imported above) for the actual
-# rendering/compositing implementation, shared with step 18.
-# ----------------------------
-
-
-
-
-# ----------------------------
-# MULTI-CLIP SCENE BUILDER
-# ----------------------------
-
-
-def build_scene_clip(scene_entry: dict, actual_duration: float):
-   """Build a complete scene: multi-clip + text overlays + zoom punches."""
-   scene_entry = normalize_scene(scene_entry)
-   scene_id = scene_entry["scene_id"]
-   clips_data = scene_entry["clips"]
-
-
-   sub_clips = []
-   for i, clip_data in enumerate(clips_data):
-       clip_dur = clip_data.get("duration_sec", actual_duration / len(clips_data))
-       clip = build_single_clip(clip_data, clip_dur, scene_id)
-       punch = clip_data.get("effects", {}).get("zoom_punch")
-       if punch:
-           clip = apply_zoom_punch(clip, punch)
-       sub_clips.append(clip)
-
-
-   if len(sub_clips) == 1:
-       scene_video = sub_clips[0]
-   else:
-       scene_video = concatenate_videoclips(sub_clips, method="compose")
-
-
-   # Ensure scene matches exact narration duration
-   if abs(scene_video.duration - actual_duration) > 0.2:
-       scene_video = scene_video.subclipped(0, min(actual_duration, scene_video.duration))
-       if scene_video.duration < actual_duration:
-           black_pad = ColorClip(
-               size=(TARGET_WIDTH, TARGET_HEIGHT), color=(10, 10, 10)
-           ).with_duration(actual_duration - scene_video.duration)
-           scene_video = concatenate_videoclips([scene_video, black_pad])
-
-
-   scene_video = apply_text_overlays(
-       scene_video, scene_entry.get("text_overlays", []), actual_duration, (TARGET_WIDTH, TARGET_HEIGHT)
-   )
-
-
-   clip_count = len(clips_data)
-   has_text = len(scene_entry.get("text_overlays", [])) > 0
-   extras = []
-   if clip_count > 1:
-       extras.append(f"{clip_count} clips")
-   if has_text:
-       extras.append("text")
-   extra_str = f" [{', '.join(extras)}]" if extras else ""
-   print(f"  Scene {scene_id}: {actual_duration:.1f}s{extra_str}")
-
-
-   return scene_video
-
-
-
-
-# ----------------------------
-# SFX
-# ----------------------------
-
-
-def find_sfx_file(name):
-   """Find SFX file by name, checking wav/mp3/ogg extensions."""
-   for ext in (".wav", ".mp3", ".ogg"):
-       path = SFX_DIR / f"{name}{ext}"
-       if path.exists():
-           return path
-   return None
-
-
-
-
-def collect_sfx_audio(timeline):
-   """Build positioned SFX AudioFileClips."""
-   sfx_clips = []
-   for scene in timeline:
-       scene_start = scene.get("_actual_start", scene.get("start_time_sec", 0))
-       for sfx in scene.get("sfx", []):
-           sfx_name = sfx.get("name", "")
-           sfx_path = find_sfx_file(sfx_name)
-           if not sfx_path:
-               continue
-           try:
-               audio = AudioFileClip(str(sfx_path))
-               volume = sfx.get("volume", 0.5) * SFX_BASE_VOLUME
-               audio = audio.with_volume_scaled(volume)
-               audio = audio.with_start(scene_start + sfx.get("at_sec", 0))
-               sfx_clips.append(audio)
-           except Exception:
-               pass
-   return sfx_clips
-
-
-
-
-# ----------------------------
-# MUSIC DUCKING
-# ----------------------------
-
-
-def build_ducking_envelope(total_duration, silences):
-   sample_rate = 1000
-   num_samples = int(total_duration * sample_rate)
-   envelope = np.full(num_samples, MUSIC_VOLUME_DURING_SPEECH)
-
-
-   for silence in silences:
-       start_idx = int(silence["start"] * sample_rate)
-       end_idx = int(silence["end"] * sample_rate)
-       start_idx = max(0, min(start_idx, num_samples - 1))
-       end_idx = max(0, min(end_idx, num_samples - 1))
-       envelope[start_idx:end_idx] = MUSIC_VOLUME_DURING_PAUSE
-
-
-   fade_samples = int(DUCK_FADE_SEC * sample_rate)
-   smoothed = np.copy(envelope)
-   for i in range(1, num_samples):
-       if abs(envelope[i] - envelope[i - 1]) > 0.01:
-           region_start = max(0, i - fade_samples // 2)
-           region_end = min(num_samples, i + fade_samples // 2)
-           ramp = np.linspace(smoothed[region_start], envelope[region_end - 1],
-                              region_end - region_start)
-           smoothed[region_start:region_end] = ramp
-
-
-   return smoothed
-
-
-
-
-def apply_music_ducking(music_clip, envelope):
-   sample_rate = 1000
-
-
-   def volume_filter(get_frame, t):
-       frame = get_frame(t)
-       indices = np.clip((np.asarray(t) * sample_rate).astype(int), 0, len(envelope) - 1)
-       gains = envelope[indices]
-       if gains.ndim == 1:
-           gains = gains[:, np.newaxis]
-       return frame * gains
-
-
-   return music_clip.transform(volume_filter, keep_duration=True)
-
-
-
-
-# ----------------------------
-# MAIN
-# ----------------------------
-
-
-def run():
-   edl_path = WORKSPACE / "edl.json"
-   timing_path = WORKSPACE / "narration_timing.json"
-
-
-   if not edl_path.exists():
-       print(f"ERROR: {edl_path} not found. Run Step 13 first.")
-       sys.exit(1)
-
-
-   print("Loading edit decision list...")
-   with open(edl_path) as f:
-       edl = json.load(f)
-
-
-   timing_data = None
-   if timing_path.exists():
-       with open(timing_path) as f:
-           timing_data = json.load(f)
-       print(f"Narration timing loaded: {timing_data['total_duration_sec']}s, "
-             f"{timing_data['scene_count']} scenes")
-   else:
-       print("WARNING: narration_timing.json not found — using EDL durations (less accurate)")
-
-
-   project = edl["project"]
-   timeline = edl["timeline"]
-   edl_version = project.get("edl_version", 1)
-
-
-   print(f"Project: {project['resolution']} @ {project['fps']}fps (EDL v{edl_version})")
-   print(f"Scenes: {len(timeline)}")
-   print()
-
-
-   # Override EDL durations with actual narration timestamps
-   if timing_data:
-       timing_scenes = timing_data["scenes"]
-       for i, entry in enumerate(timeline):
-           if i < len(timing_scenes):
-               ts = timing_scenes[i]
-               entry["_actual_start"] = ts["start_sec"]
-               entry["_actual_duration"] = ts["duration_sec"]
-           else:
-               entry["_actual_start"] = entry["start_time_sec"]
-               entry["_actual_duration"] = entry["duration_sec"]
-   else:
-       for entry in timeline:
-           entry["_actual_start"] = entry["start_time_sec"]
-           entry["_actual_duration"] = entry["duration_sec"]
-
-
-   # Build clips
-   print("Building scene clips (narration-locked)...")
-   clips = []
-   for entry in timeline:
-       clip = build_scene_clip(entry, entry["_actual_duration"])
-       clips.append(clip)
-
-
-   print("\nConcatenating timeline...")
-   final_video = concatenate_videoclips(clips, method="compose")
-   total_duration = final_video.duration
-   print(f"Video duration: {total_duration:.1f}s")
-
-
-   # Audio mixing
-   print("\nMixing audio...")
-   narration_path = WORKSPACE / "narration.mp3"
-   music_path = WORKSPACE / "music.wav"
-
-
-   audio_tracks = []
-
-
-   if narration_path.exists():
-       narration = AudioFileClip(str(narration_path))
-       audio_tracks.append(narration)
-       print(f"  Narration: {narration.duration:.1f}s")
-   else:
-       print("  WARNING: narration.mp3 not found")
-
-
-   if music_path.exists():
-       music = AudioFileClip(str(music_path))
-       music = music.subclipped(0, min(total_duration, music.duration))
-
-
-       if timing_data and "all_silences" in timing_data:
-           print(f"  Music ducking: speech={MUSIC_VOLUME_DURING_SPEECH}, pause={MUSIC_VOLUME_DURING_PAUSE}")
-           envelope = build_ducking_envelope(total_duration, timing_data["all_silences"])
-           music = apply_music_ducking(music, envelope)
-       else:
-           flat_volume = project.get("music_volume", 0.15)
-           music = music.with_volume_scaled(flat_volume)
-           print(f"  Music: flat volume @ {flat_volume}")
-
-
-       audio_tracks.append(music)
-       print(f"  Music: {music.duration:.1f}s")
-   else:
-       print("  WARNING: music.wav not found")
-
-
-   # SFX
-   sfx_clips = collect_sfx_audio(timeline)
-   if sfx_clips:
-       audio_tracks.extend(sfx_clips)
-       print(f"  SFX: {len(sfx_clips)} sound effects loaded")
-
-
-   if audio_tracks:
-       final_audio = CompositeAudioClip(audio_tracks)
-       final_video = final_video.with_audio(final_audio)
-
-
-   # Export
-   OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-   output_path = OUTPUT_DIR / "final_video.mp4"
-   print(f"\nExporting to {output_path}...")
-
-
-   final_video.write_videofile(
-       str(output_path),
-       fps=FPS,
-       codec="libx264",
-       audio_codec="aac",
-       bitrate="8000k",
-       preset="medium",
-       threads=4,
-   )
-
-
-   print(f"\nDone! Output: {output_path}")
-   print(f"Duration: {total_duration:.1f}s")
-
-
-   final_video.close()
-   for c in clips:
-       c.close()
-
-
+TRANSITION_FRAMES = 8        # centered dissolve at each scene boundary (0 disables)
+LOOK_ENABLED = os.environ.get("ASSEMBLE_LOOK", "1") != "0"
+LOOK_LUT = os.environ.get("ASSEMBLE_LUT") or (
+    str(BASE_DIR / "luts" / "look.cube") if (BASE_DIR / "luts" / "look.cube").exists() else None)
+TARGET_LUFS = -14.0
+TARGET_TP = -1.5
+
+KNOWN_EFFECTS = {"speed", "zoom_punch"}
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+
+
+class PreflightError(Exception):
+    pass
+
+
+# ----------------------------------------------------------------------------
+# ffmpeg helpers
+# ----------------------------------------------------------------------------
+
+def _run(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, **kw)
+
+
+def probe_duration(path: Path):
+    r = _run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+              "-of", "csv=p=0", str(path)], text=True)
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return None
+
+
+def decode_audio(path: Path) -> np.ndarray:
+    """Decode to float32 stereo @ SR, shape (n, 2)."""
+    r = _run(["ffmpeg", "-v", "error", "-i", str(path), "-f", "f32le",
+              "-ac", "2", "-ar", str(SR), "-"])
+    if r.returncode != 0:
+        raise RuntimeError(f"cannot decode {path}: {r.stderr.decode()[-300:]}")
+    return np.frombuffer(r.stdout, dtype="<f4").reshape(-1, 2).copy()
+
+
+# ----------------------------------------------------------------------------
+# Planning (pure; no rendering)
+# ----------------------------------------------------------------------------
+
+def normalize_asset_path(p):
+    if not p:
+        return p
+    p = re.sub(r"assets/SCENE[ _](\d+)/", lambda m: f"assets/scene_{m.group(1)}/", p)
+    if not p.startswith("assets/") and p.startswith("scene_"):
+        p = "assets/" + p
+    return p
+
+
+def resolve_asset(ws: Path, rel: str, scene_id: int):
+    """Resolve an EDL path; tolerate asset_K vs asset_<scene>.K folder naming."""
+    rel = normalize_asset_path(rel)
+    cand = ws / rel
+    if cand.exists():
+        return cand
+    m = re.match(r"assets/scene_(\d+)/asset_(\d+)(?:\.(\d+))?/(.+)$", rel)
+    if m:
+        s, a1, a2, fname = m.groups()
+        k = a2 or a1
+        base = ws / "assets" / f"scene_{s}" / f"asset_{s}.{k}"
+        for name in (fname, "animated.mp4", "image.png"):
+            if (base / name).exists():
+                return base / name
+    return None
+
+
+def load_edl_scenes(edl):
+    """Accept the flat-list EDL or the legacy {project, timeline} form."""
+    scenes = edl["timeline"] if isinstance(edl, dict) else edl
+    out = []
+    for e in scenes:
+        if "clips" not in e:  # legacy single-asset form
+            a = e.get("asset", {})
+            e = dict(e, clips=[{
+                "path": a.get("path"), "type": a.get("type", "video"),
+                "trim_start_sec": a.get("trim_start_sec", 0),
+                "trim_end_sec": a.get("trim_end_sec"),
+                "duration_sec": e.get("duration_sec"),
+                "effects": e.get("effects", {})}])
+        out.append(e)
+    return out
+
+
+def build_plan(ws: Path, edl, timing):
+    """Return (plan, errors, warnings). plan is None if errors."""
+    errors, warnings = [], []
+    scenes = load_edl_scenes(edl)
+    t_scenes = timing["scenes"]
+
+    edl_ids = [s["scene_id"] for s in scenes]
+    t_ids = [s["scene_id"] for s in t_scenes]
+    if edl_ids != t_ids:
+        errors.append(f"EDL scene ids {edl_ids} != timing scene ids {t_ids}")
+        return None, errors, warnings
+    if timing.get("scene_count") != len(t_scenes):
+        errors.append(f"timing scene_count={timing.get('scene_count')} but {len(t_scenes)} scenes listed")
+
+    total_frames = round(timing["total_duration_sec"] * FPS)
+    starts = [round(s["start_sec"] * FPS) for s in t_scenes]
+
+    # gaps / overlaps in the timing file itself
+    for a, b in zip(t_scenes, t_scenes[1:]):
+        gap = b["start_sec"] - a["end_sec"]
+        if abs(gap) > 1.0 / FPS:
+            kind = "gap" if gap > 0 else "overlap"
+            errors.append(f"scene {a['scene_id']}->{b['scene_id']}: {kind} of {abs(gap):.3f}s")
+    if starts and starts[0] != 0:
+        errors.append(f"first scene starts at frame {starts[0]}, expected 0")
+    ends = starts[1:] + [total_frames]
+    last_end = round(t_scenes[-1]["end_sec"] * FPS)
+    if abs(last_end - total_frames) > 1:
+        errors.append(f"last scene ends at frame {last_end} but total is {total_frames}")
+
+    plan = {"total_frames": total_frames, "scenes": []}
+    for sc, f0, f1 in zip(scenes, starts, ends):
+        n = f1 - f0
+        sid = sc["scene_id"]
+        if n < 1:
+            errors.append(f"scene {sid}: slot is {n} frames")
+            continue
+        clips = sc["clips"]
+        durs = [float(c.get("duration_sec") or 0) for c in clips]
+        if sum(durs) <= 0:
+            durs = [1.0] * len(clips)
+        if abs(sum(durs) - n / FPS) > 1.0 / FPS and len(clips) > 1:
+            warnings.append(f"scene {sid}: clip durations sum {sum(durs):.2f}s != slot {n / FPS:.2f}s; rescaled to slot")
+        if n < len(clips):
+            errors.append(f"scene {sid}: {len(clips)} clips do not fit in {n} frames")
+            continue
+
+        cum, bounds = 0.0, [0]
+        for d in durs:
+            cum += d
+            bounds.append(round(n * cum / sum(durs)))
+        bounds[-1] = n
+        for i in range(1, len(bounds)):  # at least 1 frame per clip
+            bounds[i] = max(bounds[i], bounds[i - 1] + 1)
+        if bounds[-1] != n:
+            errors.append(f"scene {sid}: cannot give every clip a frame")
+            continue
+
+        cplans = []
+        for i, c in enumerate(clips):
+            eff = c.get("effects") or {}
+            for k in eff:
+                if k not in KNOWN_EFFECTS:
+                    warnings.append(f"scene {sid} clip {i}: unknown effect '{k}' ignored")
+            speed = float(eff.get("speed") or 1.0)
+            if speed <= 0:
+                errors.append(f"scene {sid} clip {i}: invalid speed {speed}")
+                speed = 1.0
+            ctype = c.get("type", "video")
+            path = None
+            if ctype != "placeholder" and c.get("path"):
+                path = resolve_asset(ws, c["path"], sid)
+                if path is None:
+                    errors.append(f"scene {sid} clip {i}: missing file {c['path']}")
+            kind = "placeholder" if path is None else ("image" if path.suffix.lower() in IMAGE_EXT else "video")
+            trim_start = float(c.get("trim_start_sec") or 0)
+            trim_end = c.get("trim_end_sec")
+            cn = bounds[i + 1] - bounds[i]
+            if kind == "video":
+                dur = probe_duration(path)
+                if dur is None:
+                    errors.append(f"scene {sid} clip {i}: unreadable video {path.name}")
+                else:
+                    avail = dur if trim_end is None else min(float(trim_end), dur)
+                    avail_frames = int((avail - trim_start) / speed * FPS)
+                    if avail_frames < 1:
+                        errors.append(f"scene {sid} clip {i}: trim_start {trim_start}s is beyond clip end")
+                    elif avail_frames < cn:
+                        warnings.append(f"scene {sid} clip {i}: FREEZE - source has {avail_frames} frames, "
+                                        f"needs {cn}; holding last frame for {cn - avail_frames}")
+                    elif avail_frames > cn + 1:
+                        warnings.append(f"scene {sid} clip {i}: TRIM - {avail_frames} source frames cut to {cn}")
+            cplans.append(dict(
+                scene_id=sid, index=i, kind=kind, path=path, trim_start=trim_start,
+                trim_end=None if trim_end is None else float(trim_end), speed=speed,
+                punch=eff.get("zoom_punch"), f0=f0 + bounds[i], n=cn))
+
+        overlays = []
+        for ov in sc.get("text_overlays") or []:
+            o0 = min(n, max(0, round(float(ov.get("start_sec", 0)) * FPS)))
+            o1 = min(n, round(float(ov.get("end_sec", n / FPS)) * FPS))
+            if ov.get("text") and o1 > o0:
+                overlays.append(dict(text=ov["text"], style=ov.get("style", "dramatic_center"),
+                                     anim=ov.get("animation", "none"), f0=f0 + o0, n=o1 - o0))
+        sfx = [dict(name=s.get("name", ""), volume=float(s.get("volume", 0.5)),
+                    frame=f0 + min(n - 1, max(0, round(float(s.get("at_sec", 0)) * FPS))))
+               for s in sc.get("sfx") or []]
+        plan["scenes"].append(dict(scene_id=sid, f0=f0, n=n, clips=cplans, overlays=overlays, sfx=sfx))
+
+    return (None if errors else plan), errors, warnings
+
+
+def preflight(ws: Path):
+    """Raises PreflightError (listing every problem) before anything renders."""
+    errors, warnings = [], []
+    for name in ("edl.json", "narration_timing.json", "narration.mp3"):
+        if not (ws / name).exists():
+            errors.append(f"missing {name}")
+    if errors:
+        raise PreflightError("\n".join(errors))
+    edl = json.loads((ws / "edl.json").read_text())
+    timing = json.loads((ws / "narration_timing.json").read_text())
+
+    real = probe_duration(ws / "narration.mp3")
+    if real is None:
+        errors.append("narration.mp3 is unreadable")
+    elif abs(real - timing["total_duration_sec"]) > NARRATION_TOLERANCE_SEC:
+        errors.append(f"narration.mp3 is {real:.2f}s but timing says {timing['total_duration_sec']}s "
+                      f"(timing made for a different audio file?)")
+
+    plan, e, w = build_plan(ws, edl, timing)
+    errors += e
+    warnings += w
+    if not (ws / "music.wav").exists():
+        warnings.append("music.wav not found; rendering without music")
+    for s in (plan or {}).get("scenes", []):
+        for sf in s["sfx"]:
+            if _find_sfx(sf["name"]) is None:
+                warnings.append(f"scene {s['scene_id']}: sfx '{sf['name']}' not found, skipped")
+    if errors:
+        raise PreflightError("\n".join(errors))
+    return plan, timing, warnings
+
+
+# ----------------------------------------------------------------------------
+# Audio: one numpy mix on the 48 kHz / 1600-samples-per-frame grid
+# ----------------------------------------------------------------------------
+
+def _find_sfx(name):
+    for ext in (".wav", ".mp3", ".ogg"):
+        p = SFX_DIR / f"{name}{ext}"
+        if p.exists():
+            return p
+    return None
+
+
+def _fit(x: np.ndarray, n: int) -> np.ndarray:
+    if len(x) >= n:
+        return x[:n]
+    return np.vstack([x, np.zeros((n - len(x), 2), dtype=np.float32)])
+
+
+def ducking_gain(n_samples, silences):
+    """Music gain per sample: low during speech, higher in pauses, smoothed."""
+    rate = 1000
+    n = int(np.ceil(n_samples / SR * rate)) + 1
+    env = np.full(n, MUSIC_SPEECH_GAIN, dtype=np.float64)
+    for s in silences:
+        a, b = int(s["start"] * rate), int(s["end"] * rate)
+        env[max(0, a):max(0, min(n, b))] = MUSIC_PAUSE_GAIN
+    k = max(1, int(DUCK_FADE_SEC * rate))
+    env = np.convolve(np.pad(env, (k, k), mode="edge"), np.ones(k) / k, mode="same")[k:-k]
+    return np.interp(np.arange(n_samples) / SR, np.arange(n) / rate, env).astype(np.float32)
+
+
+def build_audio(ws: Path, plan, timing) -> np.ndarray:
+    total = plan["total_frames"] * SPF
+    mix = _fit(decode_audio(ws / "narration.mp3"), total)  # untouched, from t=0
+
+    music_path = ws / "music.wav"
+    if music_path.exists():
+        m = decode_audio(music_path)
+        if len(m) < total:  # loop short music
+            m = np.tile(m, (int(np.ceil(total / max(1, len(m)))), 1))
+        m = m[:total].copy()
+        fade = min(total, int(MUSIC_FADE_OUT_SEC * SR))
+        m[total - fade:] *= np.linspace(1, 0, fade, dtype=np.float32)[:, None]
+        mix += m * ducking_gain(total, timing.get("all_silences", []))[:, None]
+
+    for sc in plan["scenes"]:
+        for sf in sc["sfx"]:
+            p = _find_sfx(sf["name"])
+            if p is None:
+                continue
+            a = decode_audio(p) * (sf["volume"] * SFX_BASE_VOLUME)
+            off = sf["frame"] * SPF
+            seg = a[:max(0, total - off)]
+            mix[off:off + len(seg)] += seg
+
+    return np.clip(mix, -1.0, 1.0)
+
+
+def write_wav(path: Path, x: np.ndarray):
+    pcm = (x * 32767.0).round().astype("<i2")
+    import wave
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(SR)
+        w.writeframes(pcm.tobytes())
+
+
+def master_audio(wav_in: Path, wav_out: Path, total_samples: int) -> Path:
+    """Highpass + gentle compression + two-pass loudnorm (-14 LUFS), then
+    re-fit to the exact sample grid so timing is untouched."""
+    pre = "highpass=f=70,acompressor=threshold=-20dB:ratio=3:attack=15:release=250:makeup=2"
+    r = _run(["ffmpeg", "-v", "info", "-i", str(wav_in), "-af",
+              f"{pre},loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA=11:print_format=json",
+              "-f", "null", "-"], text=True)
+    m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", r.stderr, re.S)
+    chain = pre
+    if m:
+        d = json.loads(m.group(0))
+        try:
+            vals = {k: float(d[k]) for k in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")}
+            if not all(np.isfinite(v) for v in vals.values()):
+                raise ValueError("silent audio")
+            chain += (f",loudnorm=I={TARGET_LUFS}:TP={TARGET_TP}:LRA=11:linear=true"
+                      f":measured_I={vals['input_i']}:measured_TP={vals['input_tp']}"
+                      f":measured_LRA={vals['input_lra']}:measured_thresh={vals['input_thresh']}"
+                      f":offset={vals['target_offset']}")
+        except (KeyError, ValueError):  # silent audio measures as -inf
+            pass
+    tmp_out = wav_out.with_suffix(".m.wav")
+    r = _run(["ffmpeg", "-y", "-v", "error", "-i", str(wav_in), "-af", f"{chain},aresample={SR}",
+              "-ar", str(SR), "-ac", "2", str(tmp_out)])
+    if r.returncode != 0:
+        raise RuntimeError("audio mastering failed:\n" + r.stderr.decode()[-1000:])
+    write_wav(wav_out, np.clip(_fit(decode_audio(tmp_out), total_samples), -1.0, 1.0))
+    return wav_out
+
+
+# ----------------------------------------------------------------------------
+# Text overlay rendering (PNG, shared with step 18)
+# ----------------------------------------------------------------------------
+
+def render_text_png(text, style_name, out: Path):
+    """Render via the shared text_overlay module (same styles as step 18)."""
+    sys.path.insert(0, str(Path(__file__).parent))
+    from text_overlay import render_text_overlay
+    from PIL import Image
+    Image.fromarray(render_text_overlay(text, style_name, (W, H))).save(out)
+
+
+# ----------------------------------------------------------------------------
+# Video: one filter graph
+# ----------------------------------------------------------------------------
+
+def fill_filter():
+    return (f"scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"crop={W}:{H},setsar=1")
+
+
+def look_filter(grain=True):
+    """One consistent grade for every clip: soft S-curve, slight
+    saturation/contrast lift, vignette, optional fixed-seed grain (ASSEMBLE_GRAIN=1; off by default, bloats the encode)."""
+    if not LOOK_ENABLED:
+        return "null"
+    f = []
+    if LOOK_LUT:
+        f.append(f"lut3d=file='{LOOK_LUT}'")
+    f += ["format=gbrp",
+          "curves=all='0/0 0.25/0.23 0.75/0.78 1/1'",
+          "eq=saturation=1.06:contrast=1.02",
+          "vignette=angle=PI/6"]
+    if grain and os.environ.get("ASSEMBLE_GRAIN", "0") == "1":
+        f.append("noise=alls=4:allf=t:all_seed=1234")
+    f.append("format=yuv420p")
+    return ",".join(f)
+
+
+def clip_filter(c, in_label, out_label, n=None, window=None, pre_hold=0):
+    """Filter chain for one sub-clip producing exactly n (default c['n']) frames.
+    window=(a, b) keeps only frames [a, b) of the n-frame clip;
+    pre_hold repeats the first frame that many times up front."""
+    n = c["n"] if n is None else n
+    f = []
+    if c["kind"] == "video" and c["trim_end"] is not None:
+        f.append(f"trim=duration={max(0.0, c['trim_end'] - c['trim_start'])}")
+    f.append(f"setpts=(PTS-STARTPTS)/{c['speed']}")
+    f.append(f"fps={FPS}")
+    f.append(fill_filter())
+    p = c["punch"]
+    if p:
+        at, sc, dur = float(p.get("at_sec", 0)), float(p.get("scale", 1.15)), float(p.get("duration_sec", 0.3))
+        z = f"(1+({sc}-1)*max(0,1-abs(t-{at})/({dur}/2)))"
+        f.append(f"scale=w='trunc({W}*{z}/2)*2':h='trunc({H}*{z}/2)*2':eval=frame,crop={W}:{H}")
+    f.append("format=yuv420p")
+    f.append(f"tpad=stop_mode=clone:stop_duration={n / FPS + 2}")  # hold last frame
+    if window:
+        f.append(f"trim=start_frame={window[0]}:end_frame={window[1]}")
+    else:
+        f.append(f"trim=end_frame={n}")
+    f.append("setpts=PTS-STARTPTS")
+    if pre_hold:
+        f.append(f"tpad=start={pre_hold}:start_mode=clone")
+    return f"[{in_label}]" + ",".join(f) + f"[{out_label}]"
+
+
+def plan_transitions(plan):
+    """Centered dissolves at scene boundaries. For boundary frame b and half-width h,
+    frames [b-h, b+h) blend the outgoing clip (continuing past its end) with the
+    incoming clip (first frame held before its start). Total length and every
+    clip's own frame positions are unchanged."""
+    out = []
+    if TRANSITION_FRAMES < 2:
+        return out
+    scenes = plan["scenes"]
+    for sa, sb in zip(scenes, scenes[1:]):
+        ca, cb = sa["clips"][-1], sb["clips"][0]
+        h = min(TRANSITION_FRAMES // 2, ca["n"] // 2, cb["n"] // 2)
+        if h >= 1:
+            out.append(dict(a=ca, b=cb, h=h, at=cb["f0"]))
+    return out
+
+
+def _input_args(c):
+    if c["kind"] == "placeholder":
+        return ["-f", "lavfi", "-i", f"color=c=0x0a0a0a:s={W}x{H}:r={FPS}"]
+    if c["kind"] == "image":
+        return ["-loop", "1", "-framerate", str(FPS), "-i", str(c["path"])]
+    return ["-ss", f"{c['trim_start']}", "-i", str(c["path"])]
+
+
+def render(ws: Path, plan, timing, out_path: Path, tmp: Path):
+    total = plan["total_frames"]
+    raw = tmp / "mix_raw.wav"
+    wav = tmp / "mix.wav"
+    write_wav(raw, build_audio(ws, plan, timing))
+    master_audio(raw, wav, total * SPF)
+
+    inputs, chains, labels = [], [], []
+
+    def add_input(args):
+        inputs.extend(args)
+        return sum(1 for a in inputs if a == "-i") - 1
+
+    for c in (c for sc in plan["scenes"] for c in sc["clips"]):
+        k = add_input(_input_args(c))
+        labels.append(f"v{len(labels)}")
+        chains.append(clip_filter(c, f"{k}:v", labels[-1]))
+
+    chains.append("".join(f"[{l}]" for l in labels) + f"concat=n={len(labels)}:v=1:a=0[cat]")
+    trs = plan_transitions(plan)
+    if not trs:
+        chains.append(f"[cat]setpts=N/({FPS}*TB)[tl]")
+    else:
+        # Frame-exact splice (no timestamp sync): base[..b-h) + window(2h) + base[b+h..)
+        chains.append(f"[cat]split={len(trs) + 1}" + "".join(f"[s{i}]" for i in range(len(trs) + 1)))
+        parts, prev_end = [], 0
+        for i, t in enumerate(trs):
+            h, b, ca, cb = t["h"], t["at"], t["a"], t["b"]
+            ko = add_input(_input_args(ca))
+            ki = add_input(_input_args(cb))
+            chains.append(f"[s{i}]trim=start_frame={prev_end}:end_frame={b - h},setpts=PTS-STARTPTS[p{i}]")
+            chains.append(clip_filter(ca, f"{ko}:v", f"to{i}", n=ca["n"] + h, window=(ca["n"] - h, ca["n"] + h)))
+            chains.append(clip_filter(cb, f"{ki}:v", f"ti{i}", n=h, pre_hold=h))
+            chains.append(f"[ti{i}]format=yuva420p,fade=t=in:s=0:n={2 * h}:alpha=1[tf{i}]")
+            chains.append(f"[to{i}][tf{i}]overlay=format=auto:shortest=1,format=yuv420p,"
+                          f"trim=end_frame={2 * h},setpts=PTS-STARTPTS[w{i}]")
+            parts += [f"p{i}", f"w{i}"]
+            prev_end = b + h
+        chains.append(f"[s{len(trs)}]trim=start_frame={prev_end},setpts=PTS-STARTPTS[p{len(trs)}]")
+        parts.append(f"p{len(trs)}")
+        chains.append("".join(f"[{x}]" for x in parts) + f"concat=n={len(parts)}:v=1:a=0,setpts=N/({FPS}*TB)[tl]")
+
+    chains.append(f"[tl]{look_filter()}[graded]")
+    cur = "graded"
+
+    ov_i = 0
+    for sc in plan["scenes"]:
+        for ov in sc["overlays"]:
+            png = tmp / f"ov{ov_i}.png"
+            render_text_png(ov["text"], ov["style"], png)
+            k = add_input(["-loop", "1", "-framerate", str(FPS), "-i", str(png)])
+            fade = ""
+            if ov["anim"] in ("fade_scale", "slide_up"):
+                fd = min(0.3, ov["n"] / FPS / 2)
+                fade = (f",fade=t=in:st=0:d={fd}:alpha=1"
+                        f",fade=t=out:st={ov['n'] / FPS - fd}:d={fd}:alpha=1")
+            chains.append(f"[{k}:v]format=rgba{fade},setpts=PTS-STARTPTS+{ov['f0']}/({FPS}*TB)[o{ov_i}]")
+            chains.append(f"[{cur}][o{ov_i}]overlay=enable='between(n,{ov['f0']},{ov['f0'] + ov['n'] - 1})'"
+                          f":eof_action=pass:shortest=1[m{ov_i}]")
+            cur = f"m{ov_i}"
+            ov_i += 1
+    chains.append(f"[{cur}]trim=end_frame={total},setpts=N/({FPS}*TB)[vout]")
+    audio_idx = add_input(["-i", str(wav)])
+
+    script = tmp / "graph.txt"
+    script.write_text(";\n".join(chains))
+    cmd = (["ffmpeg", "-y", "-v", "error", "-threads", "4", "-filter_threads", "1"] + inputs
+           + ["-/filter_complex", str(script),
+              "-map", "[vout]", "-map", f"{audio_idx}:a",
+              "-frames:v", str(total), "-r", str(FPS), "-fps_mode", "cfr",
+              "-c:v", "libx264", "-preset", "medium", "-crf", "16", "-pix_fmt", "yuv420p",
+              "-x264-params", "threads=4:sliced-threads=0",
+              "-c:a", "aac", "-b:a", "192k", "-ar", str(SR),
+              "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact",
+              "-movflags", "+faststart", str(out_path)])
+    r = _run(cmd)
+    if r.returncode != 0:
+        raise RuntimeError("ffmpeg failed:\n" + r.stderr.decode()[-2000:])
+    return wav
+
+
+# ----------------------------------------------------------------------------
+# Post-render verification
+# ----------------------------------------------------------------------------
+
+VW, VH = 64, 36
+
+
+def _gray_frames(cmd_in, vf, max_frames=None):
+    cmd = ["ffmpeg", "-v", "error"] + cmd_in + ["-vf", vf + f",scale={VW}:{VH},format=gray"]
+    if max_frames:
+        cmd += ["-frames:v", str(max_frames)]
+    cmd += ["-f", "rawvideo", "-"]
+    r = _run(cmd)
+    return np.frombuffer(r.stdout, dtype=np.uint8).reshape(-1, VH, VW).astype(np.float32)
+
+
+def _err(a, b):
+    return float(np.abs(a - b).mean())
+
+
+def expected_clip_frames(c, upto):
+    """Source frames 0..upto-1 of a sub-clip as the renderer shows them (graded,
+    downscaled). Indices past the source's end clamp to the last frame (hold)."""
+    look = look_filter(grain=False)
+    if c["kind"] == "placeholder":
+        fr = _gray_frames(["-f", "lavfi", "-i", f"color=c=0x0a0a0a:s={W}x{H}:r={FPS}"], look, 1)
+    elif c["kind"] == "image":
+        fr = _gray_frames(["-i", str(c["path"])], f"{fill_filter()},{look}", 1)
+    else:
+        pre = f"trim=duration={c['trim_end'] - c['trim_start']}," if c["trim_end"] is not None else ""
+        fr = _gray_frames(["-ss", f"{c['trim_start']}", "-i", str(c["path"])],
+                          f"{pre}setpts=(PTS-STARTPTS)/{c['speed']},fps={FPS},{fill_filter()},{look}", upto)
+    return lambda k: fr[max(0, min(k, len(fr) - 1))]
+
+
+def verify(out_path: Path, plan, wav_path: Path = None):
+    """Return list of failure strings (empty = pass)."""
+    fails, info = [], []
+    total = plan["total_frames"]
+
+    r = _run(["ffprobe", "-v", "error", "-count_frames", "-select_streams", "v:0",
+              "-show_entries", "stream=nb_read_frames,start_time,duration,r_frame_rate",
+              "-of", "json", str(out_path)], text=True)
+    v = json.loads(r.stdout)["streams"][0]
+    frames = int(v["nb_read_frames"])
+    info.append(f"frames {frames}/{total}")
+    if frames != total:
+        fails.append(f"frame count {frames} != planned {total}")
+
+    r = _run(["ffprobe", "-v", "error", "-select_streams", "a:0",
+              "-show_entries", "stream=start_time,duration,sample_rate", "-of", "json", str(out_path)], text=True)
+    a = json.loads(r.stdout)["streams"][0]
+    vdur = float(v.get("duration") or frames / FPS)
+    adur = float(a["duration"])
+    info.append(f"video {vdur:.3f}s audio {adur:.3f}s")
+    if abs(vdur - adur) > 1.0 / FPS:
+        fails.append(f"audio/video length differ by {abs(vdur - adur) * 1000:.1f}ms (> 1 frame)")
+    for nm, s in (("video", v), ("audio", a)):
+        off = float(s.get("start_time") or 0)
+        if abs(off) > MAX_START_OFFSET_SEC:
+            fails.append(f"{nm} stream start offset {off * 1000:.1f}ms > {MAX_START_OFFSET_SEC * 1000:.0f}ms")
+    info.append(f"start offsets v={float(v.get('start_time') or 0) * 1000:.1f}ms a={float(a.get('start_time') or 0) * 1000:.1f}ms")
+
+    # audio content lag vs the planned mix (catches codec delay / shifted audio)
+    if wav_path is not None and wav_path.exists():
+        try:
+            ref = decode_audio(wav_path)
+            got = decode_audio(out_path)
+            n = min(len(ref), len(got), SR * 30)
+            e = lambda x: np.abs(x[:n, 0]).reshape(-1, 48).mean(axis=1)  # 1 ms envelope
+            er, eg = e(ref), e(got)
+            er, eg = er - er.mean(), eg - eg.mean()
+            if er.std() > 1e-6:
+                lags = range(-60, 61)
+                best = max(lags, key=lambda L: float(np.dot(er[max(0, L):len(er) + min(0, L)],
+                                                            eg[max(0, -L):len(eg) + min(0, -L)])))
+                info.append(f"audio lag {best}ms")
+                if abs(best) > MAX_START_OFFSET_SEC * 1000:
+                    fails.append(f"audio content lag {best}ms vs planned mix")
+        except Exception as ex:  # verification of a verifier aid must not mask real results
+            info.append(f"audio lag check skipped ({ex})")
+
+    # per sub-clip boundary frames
+    rendered = _gray_frames(["-i", str(out_path)], "null", None)
+    if len(rendered) != frames:
+        fails.append(f"decoded {len(rendered)} frames but container reports {frames}")
+    clips = [c for sc in plan["scenes"] for c in sc["clips"]]
+    trans = {id(t["b"]): t for t in plan_transitions(plan)}
+    in_trans = {id(t["a"]): t for t in trans.values()}
+    exp = [expected_clip_frames(c, c["n"] + (in_trans[id(c)]["h"] if id(c) in in_trans else 0)) for c in clips]
+    eps = 0.5
+    checked = 0
+    for j, c in enumerate(clips):
+        a0, a1 = c["f0"], c["f0"] + c["n"] - 1
+        tag = f"scene {c['scene_id']} clip {c['index']}"
+        if a1 >= len(rendered):
+            fails.append(f"{tag}: beyond rendered video")
+            continue
+        E = exp[j]
+        t = trans.get(id(c))
+        if j and t:
+            h, P = t["h"], exp[j - 1]
+            pa = clips[j - 1]["n"]
+            # window edges are pure frames: just outside it, each side shows its own clip
+            if _err(rendered[a0 + h], E(h)) > _err(rendered[a0 + h], P(pa - 1)) + eps:
+                fails.append(f"{tag}: frame {a0 + h} (end of dissolve) does not show this clip")
+            if _err(rendered[a0 - h - 1], P(pa - h - 1)) > _err(rendered[a0 - h - 1], E(0)) + eps:
+                fails.append(f"{tag}: frame {a0 - h - 1} (before dissolve) does not show previous clip")
+            # dissolve must be 50% at the cut frame (within half a frame of ramp)
+            A, B = P(pa), E(0)
+            den = float(((B - A) ** 2).sum())
+            if den > 1e3:
+                alpha = float(((rendered[a0] - A) * (B - A)).sum()) / den
+                if abs(alpha - 0.5) > 0.5 / (2 * h) + 0.03:
+                    fails.append(f"{tag}: dissolve is {alpha:.2f} at cut frame {a0}, expected 0.50")
+        elif j:
+            prev_last = exp[j - 1](clips[j - 1]["n"] - 1)
+            if _err(rendered[a0], E(0)) > _err(rendered[a0], prev_last) + eps:
+                fails.append(f"{tag}: first frame {a0} matches previous clip better")
+            if _err(rendered[a0 - 1], prev_last) > _err(rendered[a0 - 1], E(0)) + eps:
+                fails.append(f"{tag}: frame {a0 - 1} already shows this clip (cut early)")
+        if j + 1 < len(clips) and id(clips[j + 1]) not in trans:
+            if _err(rendered[a1], E(c["n"] - 1)) > _err(rendered[a1], exp[j + 1](0)) + eps:
+                fails.append(f"{tag}: last frame {a1} matches next clip better")
+        checked += 1
+    info.append(f"{checked}/{len(clips)} clip boundaries checked")
+    print("  verify: " + "; ".join(info))
+    return fails
+
+
+# ----------------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------------
+
+def run(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    ws = WORKSPACE
+    print("Preflight...")
+    try:
+        plan, timing, warnings = preflight(ws)
+    except PreflightError as e:
+        print("PREFLIGHT FAILED:\n" + "\n".join("  - " + x for x in str(e).splitlines()))
+        return 2
+    for w in warnings:
+        print("  WARN:", w)
+    print(f"  OK: {len(plan['scenes'])} scenes, {plan['total_frames']} frames "
+          f"({plan['total_frames'] / FPS:.2f}s @ {FPS}fps)")
+    if "--preflight-only" in argv:
+        return 0
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = OUTPUT_DIR / "final_video.mp4"
+    with tempfile.TemporaryDirectory(prefix="assemble_") as td:
+        tmp = Path(td)
+        if "--verify-only" in argv:
+            wav = None
+        else:
+            print(f"Rendering -> {out}")
+            wav = render(ws, plan, timing, out, tmp)
+        print("Verifying...")
+        fails = verify(out, plan, wav)
+    if fails:
+        print("VERIFICATION FAILED:\n" + "\n".join("  - " + f for f in fails))
+        return 3
+    print("Verification passed. Done.")
+    return 0
 
 
 if __name__ == "__main__":
-   run()
-
-
-
+    sys.exit(run())
